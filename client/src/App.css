@@ -1,179 +1,656 @@
+/* Shell ------------------------------------------------------------------ */
+
 .chat {
   display: flex;
   flex-direction: column;
   height: 100dvh;
-  max-width: 720px;
+  max-width: 44rem;
   margin: 0 auto;
-  padding: 0 1rem;
+  padding: 0 var(--sp-4);
 }
 
-.chat-header {
+/* Embedded in an iframe via widget.js: the parent owns the panel chrome, so
+   the shell is edge to edge and each block carries its own gutter. */
+.chat.embed {
+  max-width: none;
+  padding: 0;
+}
+
+.chat.embed .header {
+  padding: 0 var(--sp-2) 0 var(--sp-3);
+}
+
+.chat.embed .messages,
+.chat.embed .composer,
+.chat.embed .disclaimer {
+  width: 100%;
+  max-width: 44rem;
+  margin-inline: auto;
+  padding-inline: var(--sp-3);
+}
+
+/* At panel width the subtitle wraps rather than truncates. */
+.chat.embed .header {
+  height: auto;
+  min-height: 3.5rem;
+  padding-block: var(--sp-2);
+}
+
+.chat.embed .header-subtitle {
+  white-space: normal;
+}
+
+/* Header ----------------------------------------------------------------- */
+
+.header {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.5rem;
-  padding: 1rem 0 0.75rem;
+  align-items: center;
+  gap: var(--sp-3);
+  height: 3.5rem;
+  flex-shrink: 0;
   border-bottom: 1px solid var(--border);
 }
 
-.chat-header h1 {
-  margin: 0;
-  font-size: 1.25rem;
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-width: 0;
 }
 
-.chat-header p {
-  margin: 0.25rem 0 0;
-  color: var(--muted);
-  font-size: 0.875rem;
+.header-brand img {
+  flex-shrink: 0;
 }
+
+.header-text {
+  min-width: 0;
+}
+
+.header-title {
+  margin: 0;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+}
+
+.header-subtitle {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.header-actions {
+  display: flex;
+  gap: var(--sp-1);
+  margin-left: auto;
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--hit);
+  height: var(--hit);
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+
+.icon-btn:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.icon-btn:active {
+  background: var(--surface);
+}
+
+/* Message list ----------------------------------------------------------- */
 
 .messages {
   flex: 1;
   overflow-y: auto;
+  overflow-anchor: none;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-  padding: 1rem 0;
+  gap: var(--sp-4);
+  padding: var(--sp-4) 0 var(--sp-2);
 }
+
+.msg-user + .msg-user,
+.msg-assistant + .msg-assistant {
+  margin-top: calc(-1 * var(--sp-2));
+}
+
+.jump-latest {
+  position: sticky;
+  bottom: var(--sp-2);
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: var(--hit);
+  padding: 0 var(--sp-4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+  line-height: 1;
+  box-shadow: var(--shadow-md);
+  cursor: pointer;
+}
+
+/* Empty state ------------------------------------------------------------ */
 
 .empty {
-  margin: auto;
-  color: var(--muted);
-}
-
-.message {
   display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  width: 100%;
+  max-width: 26rem;
+  margin: 0;
+  padding: var(--sp-6) 0;
+  align-self: center;
 }
 
-.message.user {
-  justify-content: flex-end;
+/* Centre the empty state only when it fits; a short panel must still be
+   able to scroll to the top of it (plain `center` clips the overflow). */
+.messages.is-empty {
+  justify-content: safe center;
 }
 
-.bubble {
-  max-width: 85%;
-  padding: 0.5rem 0.875rem;
-  border-radius: 1rem;
-  line-height: 1.5;
-  overflow-wrap: break-word;
+@supports not (justify-content: safe center) {
+  .messages.is-empty {
+    justify-content: flex-start;
+  }
 }
 
-.chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.375rem;
-  margin-top: 0.5rem;
+.empty h2 {
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  line-height: var(--lh-tight);
 }
 
-.chip {
-  padding: 0.125rem 0.625rem;
+.empty p {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+
+.empty .starters-label {
+  margin-top: var(--sp-2);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+}
+
+.starters {
+  display: grid;
+  gap: var(--sp-2);
+}
+
+.starter {
+  min-height: var(--hit);
+  padding: var(--sp-3) var(--sp-4);
   border: 1px solid var(--border);
-  border-radius: 999px;
-  font-size: 0.75rem;
-  color: var(--muted);
-}
-
-.message.user .bubble {
-  background: var(--accent);
-  color: #fff;
-  border-bottom-right-radius: 0.25rem;
-}
-
-.message.assistant .bubble {
+  border-radius: var(--r-md);
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-bottom-left-radius: 0.25rem;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-tight);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease);
 }
 
-.bubble p {
-  margin: 0.5rem 0;
+.starter:hover {
+  background: var(--surface-2);
+  border-color: var(--border-strong);
 }
 
-.bubble p:first-child {
-  margin-top: 0;
+.starter:active {
+  transform: translateY(1px);
 }
 
-.bubble p:last-child {
+/* User bubble ------------------------------------------------------------ */
+
+.msg {
+  display: flex;
+  flex-direction: column;
+}
+
+.msg-user {
+  align-items: flex-end;
+}
+
+.msg-user .bubble {
+  max-width: 85%;
+  padding: var(--sp-2) var(--sp-3) calc(var(--sp-2) + 0.0625rem);
+  border-radius: var(--r-lg);
+  border-bottom-right-radius: var(--r-sm);
+  background: var(--accent);
+  color: var(--on-accent);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Assistant message: flat on the canvas, full width ----------------------- */
+
+.status-line {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 1.5rem;
+  margin: 0 0 var(--sp-1);
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+
+.status-line.is-done {
+  font-size: var(--fs-xs);
+}
+
+.status-check {
+  color: var(--success);
+}
+
+.dots {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  height: 1.5rem;
+}
+
+.dots span {
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 50%;
+  background: var(--text-muted);
+  animation: dots-pulse 1.2s infinite;
+}
+
+.dots-small span {
+  width: 0.25rem;
+  height: 0.25rem;
+}
+
+.dots span:nth-child(2) {
+  animation-delay: 150ms;
+}
+
+.dots span:nth-child(3) {
+  animation-delay: 300ms;
+}
+
+@keyframes dots-pulse {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.prose {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.prose p {
+  margin: 0 0 var(--sp-3);
+}
+
+.prose p:last-child {
   margin-bottom: 0;
 }
 
-.bubble pre {
+.prose ul,
+.prose ol {
+  margin: 0 0 var(--sp-3);
+  padding-left: var(--sp-5);
+}
+
+.prose li {
+  margin: var(--sp-1) 0;
+}
+
+.prose li > p {
+  margin: 0;
+}
+
+.prose a {
+  color: var(--link);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+}
+
+.prose a:hover {
+  text-decoration-thickness: 2px;
+}
+
+.prose .prose-heading {
+  margin: var(--sp-3) 0 var(--sp-1);
+  font-weight: 600;
+}
+
+.prose code {
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  padding: 0.0625rem 0.3125rem;
+  border-radius: var(--r-sm);
+  background: var(--code-bg);
+}
+
+.prose pre {
+  margin: 0 0 var(--sp-3);
+  padding: var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--code-bg);
   overflow-x: auto;
-  padding: 0.5rem;
-  border-radius: 0.5rem;
-  background: rgba(0, 0, 0, 0.06);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
 }
 
-.typing {
-  color: var(--muted);
+.prose pre code {
+  padding: 0;
+  background: none;
+  font-size: inherit;
 }
 
-.error {
-  color: var(--danger);
-  font-size: 0.875rem;
+.prose blockquote {
+  margin: 0 0 var(--sp-3);
+  padding-left: var(--sp-3);
+  border-left: 2px solid var(--border-strong);
+  color: var(--text-muted);
 }
 
-.composer {
-  display: flex;
-  gap: 0.5rem;
-  padding: 0.75rem 0 1rem;
+.prose table {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+}
+
+.prose th,
+.prose td {
+  padding: var(--sp-1) var(--sp-2);
+  border: 1px solid var(--border);
+  text-align: left;
+}
+
+.prose hr {
+  margin: var(--sp-3) 0;
+  border: 0;
   border-top: 1px solid var(--border);
 }
 
-.composer input {
-  flex: 1;
-  padding: 0.625rem 0.875rem;
-  border: 1px solid var(--border);
-  border-radius: 0.75rem;
-  background: var(--surface);
-  color: inherit;
-  font: inherit;
+.stopped {
+  margin: var(--sp-1) 0 0;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
 }
 
-.composer input:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: -1px;
+/* Notices (approval, error) ---------------------------------------------- */
+
+.notice {
+  display: grid;
+  grid-template-columns: 1.25rem 1fr;
+  gap: var(--sp-2) var(--sp-3);
+  margin-top: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--r-md);
+  font-size: var(--fs-sm);
 }
 
-.composer button {
-  padding: 0.625rem 1.25rem;
-  border: none;
-  border-radius: 0.75rem;
-  background: var(--accent);
-  color: #fff;
+.notice p {
+  margin: 0;
+}
+
+.notice-title {
+  font-weight: 600;
+}
+
+.notice-approval {
+  background: var(--accent-soft);
+  color: var(--accent-soft-text);
+}
+
+.notice-error {
+  background: var(--danger-soft);
+  color: var(--danger-soft-text);
+}
+
+.btn-retry {
+  min-height: var(--hit);
+  margin-top: var(--sp-2);
+  padding: 0 var(--sp-4);
+  border: 1px solid currentColor;
+  border-radius: var(--r-md);
+  background: var(--bg);
+  color: var(--danger-soft-text);
   font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 500;
   cursor: pointer;
 }
 
-.composer button:disabled {
-  opacity: 0.5;
+/* Sources ---------------------------------------------------------------- */
+
+.sources {
+  margin: var(--sp-3) 0 0;
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.sources-label {
+  font-weight: 500;
+}
+
+/* Feedback --------------------------------------------------------------- */
+
+.feedback {
+  margin-top: var(--sp-2);
+  margin-left: calc(-1 * var(--sp-2));
+}
+
+.feedback-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+}
+
+.feedback-btn[aria-pressed="true"] {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.feedback-btn:disabled {
+  pointer-events: none;
+}
+
+.feedback-btn:disabled[aria-pressed="false"] {
+  opacity: 0.45;
+}
+
+.feedback-note {
+  margin-left: var(--sp-1);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+.feedback-failed {
+  color: var(--danger);
+}
+
+.feedback-comment {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--sp-2);
+  margin: var(--sp-2) 0 0 var(--sp-2);
+}
+
+.feedback-comment textarea {
+  flex: 1;
+  min-height: var(--hit);
+  max-height: 6rem;
+  padding: 0.6875rem var(--sp-3);
+  border: 1px solid var(--border-input);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  resize: none;
+}
+
+.btn-secondary {
+  min-height: var(--hit);
+  padding: 0 var(--sp-4);
+  border: 1px solid var(--border-input);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* Composer --------------------------------------------------------------- */
+
+.composer {
+  flex-shrink: 0;
+  padding: var(--sp-2) 0;
+  border-top: 1px solid var(--border);
+}
+
+.composer-counter {
+  margin: 0 0 var(--sp-1);
+  text-align: right;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+.composer-counter.at-limit {
+  color: var(--danger);
+}
+
+.composer-row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--sp-2);
+}
+
+.composer-field {
+  flex: 1;
+  min-height: var(--hit);
+  max-height: 9rem;
+  padding: 0.625rem var(--sp-3);
+  border: 1px solid var(--border-input);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-md); /* 16px: keeps iOS from zooming on focus */
+  line-height: 1.5;
+  resize: none;
+  overflow-y: auto;
+}
+
+.composer-field::placeholder {
+  color: var(--placeholder);
+}
+
+.composer-field:focus-visible {
+  border-color: var(--focus);
+  outline-offset: 0;
+}
+
+.btn-round {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: var(--hit);
+  height: var(--hit);
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-pill);
+  font: inherit;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease);
+}
+
+.btn-send {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.btn-send:hover {
+  background: var(--accent-hover);
+}
+
+.btn-send:active {
+  background: var(--accent-active);
+}
+
+.btn-send:disabled {
+  background: var(--surface-2);
+  color: var(--text-muted);
   cursor: default;
 }
 
-/* Embedded in an iframe via widget.js: the parent owns the panel chrome. */
-.chat.embed {
-  max-width: none;
-  padding: 0 0.75rem;
+.btn-stop {
+  border: 1px solid var(--border-input);
+  background: var(--surface-2);
+  color: var(--text);
 }
 
-.embed-controls {
-  display: flex;
-  gap: 0.25rem;
-  margin-top: 0.125rem;
-}
-
-.embed-controls button {
-  width: 2rem;
-  height: 2rem;
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
+.btn-stop:hover {
   background: var(--surface);
-  color: var(--muted);
-  font: inherit;
-  font-size: 1rem;
-  line-height: 1;
-  cursor: pointer;
 }
 
-.embed-controls button:hover {
-  color: inherit;
+/* Footer ----------------------------------------------------------------- */
+
+.disclaimer {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0 0 var(--sp-2);
+  text-align: center;
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+/* Reduced motion --------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .dots span {
+    animation: none;
+    opacity: 0.6;
+  }
+
+  .starter:active {
+    transform: none;
+  }
 }

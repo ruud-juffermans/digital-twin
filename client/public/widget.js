@@ -35,12 +35,12 @@
   var style = document.createElement("style");
   style.textContent = [
     ".ask-ruud-launcher{position:fixed;right:16px;bottom:16px;z-index:" + Z + ";",
-    "width:56px;height:56px;border-radius:50%;border:none;background:#4f46e5;color:#fff;",
+    "width:56px;height:56px;border-radius:50%;border:none;background:#7e14ff;color:#fff;",
     "display:flex;align-items:center;justify-content:center;cursor:pointer;",
     "box-shadow:0 0 2rem rgba(0,0,0,.075),0 1rem 1rem -1rem rgba(0,0,0,.1);",
     "transition:transform .15s ease}",
     ".ask-ruud-launcher:hover{transform:scale(1.06)}",
-    ".ask-ruud-launcher:focus-visible{outline:2px solid #666;outline-offset:2px}",
+    ".ask-ruud-launcher:focus-visible{outline:2px solid #7e14ff;outline-offset:2px}",
     ".ask-ruud-frame{position:fixed;right:16px;bottom:84px;z-index:" + Z + ";",
     "width:clamp(384px,40vw,512px);max-width:calc(100vw - 32px);",
     "height:min(608px,calc(100dvh - 112px));",
@@ -48,7 +48,8 @@
     "box-shadow:0 0 8rem rgba(0,0,0,.1),0 2rem 4rem -3rem rgba(0,0,0,.5);",
     "opacity:0;transform:translateY(8px);pointer-events:none;",
     "transition:opacity .2s ease,transform .2s ease,width .2s ease,height .2s ease}",
-    ".ask-ruud-frame.dark{background:#121212}",
+    ".ask-ruud-frame.dark{background:#15131c}",
+    "@media (prefers-color-scheme:dark){.ask-ruud-frame:not(.light){background:#15131c}}",
     ".ask-ruud-frame.open{opacity:1;transform:none;pointer-events:auto}",
     ".ask-ruud-frame.expanded{width:min(900px,calc(100vw - 32px));",
     "height:calc(100dvh - 32px);bottom:16px}",
@@ -92,6 +93,7 @@
     wrap = document.createElement("div");
     wrap.className = "ask-ruud-frame";
     wrap.classList.toggle("dark", theme === "dark");
+    wrap.classList.toggle("light", theme === "light");
     frame = document.createElement("iframe");
     // In the URL so the first paint is already right; changes go by message.
     frame.src = origin + "/?embed=1" + (theme ? "&theme=" + theme : "");
@@ -138,6 +140,7 @@
       if (!frame) return;
       var theme = hostTheme();
       wrap.classList.toggle("dark", theme === "dark");
+      wrap.classList.toggle("light", theme === "light");
       frame.contentWindow.postMessage({ type: "ask-ruud:theme", theme: theme }, origin);
     }).observe(document.documentElement, { attributes: true, attributeFilter: [themeAttr] });
   }
