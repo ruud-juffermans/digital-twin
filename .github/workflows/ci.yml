@@ -54,7 +54,14 @@ jobs:
             echo "::warning::DOKPLOY_WEBHOOK_URL secret is not set; skipping deploy."
             exit 0
           fi
-          # Dokploy accepts a GitHub push payload; `ref` lets it match the branch.
-          curl --fail --silent --show-error -X POST "$WEBHOOK_URL" \
+          # Dokploy picks the provider from the event header and then matches
+          # the branch in `ref` against the service's configured branch.
+          response=$(curl --fail --silent --show-error -X POST "$WEBHOOK_URL" \
             -H "content-type: application/json" \
-            -d "{\"ref\":\"${GITHUB_REF}\",\"after\":\"${GITHUB_SHA}\"}"
+            -H "x-github-event: push" \
+            -d "{\"ref\":\"${GITHUB_REF}\",\"after\":\"${GITHUB_SHA}\"}")
+          echo "Dokploy: $response"
+          case "$response" in
+            *"Not Match"*|*"not found"*|*"error"*)
+              echo "::error::Dokploy did not start a deploy: $response"; exit 1 ;;
+          esac
