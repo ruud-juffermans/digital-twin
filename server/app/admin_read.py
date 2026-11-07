@@ -30,6 +30,7 @@ from .db import (
     FeedbackRow,
     GuardIncidentRow,
     KnowledgeChunkRow,
+    ModelCallRow,
     TurnLogRow,
     UnansweredQuestionRow,
 )
@@ -185,6 +186,14 @@ def _turn_json(turn: TurnLogRow, feedback: dict[str, Any] | None = None) -> dict
         "kb_version": turn.kb_version,
         "locale": turn.locale,
         "embed": turn.embed,
+        # Performance (migration 0009); the full trace is at /turns/{id}/trace.
+        "ttft_ms": turn.ttft_ms,
+        "finish_reason": turn.finish_reason,
+        "retries": turn.retries,
+        "error_type": turn.error_type,
+        "question_chars": turn.question_chars,
+        "context_chars": turn.context_chars,
+        "answer_chars": turn.answer_chars,
         "feedback": feedback,
     }
 
@@ -322,6 +331,347 @@ async def budget(request: Request, days: int = DAYS) -> Any:
         "daily_limit_usd": get_settings().daily_budget_usd,
         "spent_today_usd": state.budget.spent_usd,
         "ledger": ledger,
+    }
+
+
+# ─── performance ──────────────────────────────────────────────────────────────
+
+# Trace node → where the turn's time went. execute_tools is skipped: its tool
+# spans are counted individually, and request_approval is a human-time pause.
+TIME_BUCKETS = {"guard_input": "guard", "refuse": "guard", "generate": "model", "verify": "verify"}
+
+
+def _median(values: list[float]) -> float | None:
+    if not values:
+        return None
+    ordered = sorted(values)
+    middle = len(ordered) // 2
+    if len(ordered) % 2:
+        return round(ordered[middle], 2)
+    return round((ordered[middle - 1] + ordered[middle]) / 2, 2)
+
+
+async def _model_calls_since(
+    sessions: async_sessionmaker, since: datetime, until: datetime | None = None
+) -> list[ModelCallRow]:
+    query = select(ModelCallRow).where(ModelCallRow.created_at >= since)
+    if until is not None:
+        query = query.where(ModelCallRow.created_at < until)
+    async with sessions() as session:
+        return list((await session.execute(query.order_by(ModelCallRow.id))).scalars())
+
+
+def _tokens_per_second(call: ModelCallRow) -> float | None:
+    """Output throughput once the first token is out (Huyen's TPS); None when
+    the call produced nothing or the timing is degenerate."""
+    streaming_ms = call.latency_ms - (call.ttft_ms or 0)
+    if call.output_tokens <= 0 or streaming_ms <= 0:
+        return None
+    return call.output_tokens / (streaming_ms / 1000)
+
+
+def _performance_window(
+    turns: list[TurnLogRow], calls: list[ModelCallRow], since: datetime, until: datetime
+) -> dict[str, Any]:
+    answered = [turn for turn in turns if turn.outcome == "answered"]
+    ttfts = [turn.ttft_ms for turn in answered if turn.ttft_ms]
+    latencies = [turn.latency_ms for turn in answered if turn.latency_ms > 0]
+    throughputs = [tps for call in calls if (tps := _tokens_per_second(call)) is not None]
+    retries = sum(turn.retries or 0 for turn in turns)
+    errors = sum(1 for turn in turns if turn.outcome == "error")
+    truncated = sum(1 for turn in turns if turn.finish_reason == "length")
+    problems = sum(1 for turn in turns if turn.error_type)
+
+    def rate(count: int) -> float:
+        return round(count / len(turns), 4) if turns else 0.0
+
+    return {
+        "since": _iso(since),
+        "until": _iso(until),
+        "turns": len(turns),
+        "answered": len(answered),
+        "model_calls": len(calls),
+        "model_calls_per_turn": round(len(calls) / len(answered), 2) if answered else 0.0,
+        "ttft_p50_ms": _percentile(ttfts, 0.5),
+        "ttft_p95_ms": _percentile(ttfts, 0.95),
+        "latency_p50_ms": _percentile(latencies, 0.5),
+        "latency_p95_ms": _percentile(latencies, 0.95),
+        "tokens_per_second_p50": _median(throughputs),
+        "ms_per_output_token_p50": _median([1000 / tps for tps in throughputs]),
+        "retries": retries,
+        "retries_per_100_turns": round(100 * retries / len(turns), 2) if turns else 0.0,
+        "error_rate": rate(errors),
+        "truncation_rate": rate(truncated),
+        "problem_rate": rate(problems),
+        "lengths": {
+            "question_p50": _median([float(t.question_chars) for t in turns if t.question_chars]),
+            "context_p50": _median([float(t.context_chars) for t in turns if t.context_chars]),
+            "answer_p50": _median([float(t.answer_chars) for t in answered if t.answer_chars]),
+        },
+    }
+
+
+def _time_split(turns: list[TurnLogRow]) -> dict[str, float]:
+    split = {"guard": 0.0, "model": 0.0, "tools": 0.0, "verify": 0.0}
+    for turn in turns:
+        for span in turn.trace or []:
+            name = str(span.get("node") or "")
+            ms = float(span.get("ms") or 0)
+            if name.startswith("tool:"):
+                split["tools"] += ms
+            elif (bucket := TIME_BUCKETS.get(name)) is not None:
+                split[bucket] += ms
+    return {key: round(value, 1) for key, value in split.items()}
+
+
+def _tool_stats(turns: list[TurnLogRow]) -> list[dict[str, Any]]:
+    by_tool: dict[str, dict[str, Any]] = {}
+    for turn in turns:
+        for span in turn.trace or []:
+            name = str(span.get("node") or "")
+            if not name.startswith("tool:"):
+                continue
+            entry = by_tool.setdefault(
+                name[len("tool:"):], {"durations": [], "failures": 0, "timeouts": 0}
+            )
+            entry["durations"].append(int(span.get("ms") or 0))
+            entry["failures"] += span.get("error_type") == "tool_failed"
+            entry["timeouts"] += span.get("error_type") == "tool_timeout"
+    return sorted(
+        (
+            {
+                "name": name,
+                "calls": len(entry["durations"]),
+                "p50_ms": _percentile(entry["durations"], 0.5),
+                "p95_ms": _percentile(entry["durations"], 0.95),
+                "failures": entry["failures"],
+                "timeouts": entry["timeouts"],
+            }
+            for name, entry in by_tool.items()
+        ),
+        key=lambda item: -item["calls"],
+    )
+
+
+def _model_stats(calls: list[ModelCallRow]) -> list[dict[str, Any]]:
+    by_model: dict[str, list[ModelCallRow]] = defaultdict(list)
+    for call in calls:
+        by_model[call.model].append(call)
+    out = []
+    for model, group in by_model.items():
+        throughputs = [tps for call in group if (tps := _tokens_per_second(call)) is not None]
+        out.append(
+            {
+                "model": model,
+                "calls": len(group),
+                "latency_p50_ms": _percentile([c.latency_ms for c in group], 0.5),
+                "latency_p95_ms": _percentile([c.latency_ms for c in group], 0.95),
+                "ttft_p50_ms": _percentile([c.ttft_ms for c in group if c.ttft_ms], 0.5),
+                "ttft_p95_ms": _percentile([c.ttft_ms for c in group if c.ttft_ms], 0.95),
+                "tokens_per_second_p50": _median(throughputs),
+                "input_tokens": sum(c.input_tokens for c in group),
+                "output_tokens": sum(c.output_tokens for c in group),
+                "cached_tokens": sum(c.cached_tokens for c in group),
+                "cost_usd": round(sum(c.cost_usd for c in group), 5),
+                "retries": sum(c.retries for c in group),
+                "finish_reasons": _counts([c.finish_reason for c in group]),
+            }
+        )
+    return sorted(out, key=lambda item: -item["calls"])
+
+
+def _counts(values: list[str | None]) -> dict[str, int]:
+    counts: dict[str, int] = defaultdict(int)
+    for value in values:
+        counts[value or "unknown"] += 1
+    return dict(sorted(counts.items(), key=lambda item: -item[1]))
+
+
+def _prompt_version_stats(turns: list[TurnLogRow]) -> list[dict[str, Any]]:
+    """Huyen's "break it down by release": the same numbers per prompt version."""
+    by_version: dict[str, list[TurnLogRow]] = defaultdict(list)
+    for turn in turns:
+        by_version[turn.prompt_version or "unknown"].append(turn)
+    out = []
+    for version, group in by_version.items():
+        answered = [t for t in group if t.outcome == "answered"]
+        out.append(
+            {
+                "prompt_version": version,
+                "turns": len(group),
+                "first_seen": _iso(group[0].created_at),
+                "last_seen": _iso(group[-1].created_at),
+                "ttft_p50_ms": _percentile([t.ttft_ms for t in answered if t.ttft_ms], 0.5),
+                "latency_p50_ms": _percentile(
+                    [t.latency_ms for t in answered if t.latency_ms], 0.5
+                ),
+                "error_rate": round(sum(t.outcome == "error" for t in group) / len(group), 4),
+                "truncation_rate": round(
+                    sum(t.finish_reason == "length" for t in group) / len(group), 4
+                ),
+                "retries": sum(t.retries or 0 for t in group),
+            }
+        )
+    return sorted(out, key=lambda item: item["last_seen"], reverse=True)
+
+
+@router.get("/stats/performance")
+async def stats_performance(request: Request, days: int = DAYS) -> Any:
+    """Latency, throughput, failure and length metrics for the window and the
+    one before it, plus the breakdowns the Performance tab draws."""
+    if (denied := _guard(request)) is not None:
+        return denied
+    sessions = request.app.state.sessions
+    now = datetime.now(UTC)
+    since = now - timedelta(days=days)
+    previous_since = since - timedelta(days=days)
+    turns = await _turns_since(sessions, since)
+    previous = await _turns_since(sessions, previous_since, since)
+    calls = await _model_calls_since(sessions, since)
+    previous_calls = await _model_calls_since(sessions, previous_since, since)
+
+    by_day: dict[str, dict[str, list[int]]] = defaultdict(
+        lambda: {"latencies": [], "ttfts": [], "errors": [], "turns": []}
+    )
+    for turn in turns:
+        entry = by_day[_day(turn.created_at)]
+        entry["turns"].append(1)
+        entry["errors"].append(turn.outcome == "error")
+        if turn.outcome == "answered":
+            if turn.latency_ms > 0:
+                entry["latencies"].append(turn.latency_ms)
+            if turn.ttft_ms:
+                entry["ttfts"].append(turn.ttft_ms)
+    first_day = (now - timedelta(days=days - 1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    series = []
+    for offset in range(days):
+        day = (first_day + timedelta(days=offset)).date().isoformat()
+        entry = by_day.get(day, {"latencies": [], "ttfts": [], "errors": [], "turns": []})
+        series.append(
+            {
+                "day": day,
+                "turns": len(entry["turns"]),
+                "errors": sum(entry["errors"]),
+                "latency_p50_ms": _percentile(entry["latencies"], 0.5),
+                "latency_p95_ms": _percentile(entry["latencies"], 0.95),
+                "ttft_p50_ms": _percentile(entry["ttfts"], 0.5),
+            }
+        )
+    return {
+        "days": days,
+        "window": _performance_window(turns, calls, since, now),
+        "previous": _performance_window(previous, previous_calls, previous_since, since),
+        "series": series,
+        "time_split_ms": _time_split(turns),
+        "tools": _tool_stats(turns),
+        "models": _model_stats(calls),
+        "prompt_versions": _prompt_version_stats(turns),
+        "error_types": _counts([t.error_type for t in turns if t.error_type]),
+        "finish_reasons": _counts([t.finish_reason for t in turns if t.outcome == "answered"]),
+    }
+
+
+def _waterfall(trace: list[dict[str, Any]], calls: list[ModelCallRow]) -> list[dict[str, Any]]:
+    """Lay the run's spans on a timeline. Nodes ran back to back, so a node
+    starts where the previous one ended; tool spans precede their
+    execute_tools node in the trace and start where that node starts; the
+    Nth generate node carries the Nth model call."""
+    spans: list[dict[str, Any]] = []
+    cursor = 0.0
+    inner = 0.0
+    generate_index = 0
+    for entry in trace:
+        name = str(entry.get("node") or "")
+        ms = float(entry.get("ms") or 0)
+        if name.startswith("tool:"):
+            spans.append(
+                {
+                    "name": name[len("tool:"):],
+                    "kind": "tool",
+                    "start_ms": round(cursor + inner, 1),
+                    "duration_ms": round(ms, 1),
+                    "ok": bool(entry.get("ok", True)),
+                    "error_type": entry.get("error_type"),
+                    "detail": None,
+                }
+            )
+            inner += ms
+            continue
+        span = {
+            "name": name,
+            "kind": "node",
+            "start_ms": round(cursor, 1),
+            "duration_ms": round(ms, 1),
+            "ok": True,
+            "error_type": None,
+            "detail": None,
+        }
+        spans.append(span)
+        if name == "generate" and generate_index < len(calls):
+            call = calls[generate_index]
+            generate_index += 1
+            spans.append(
+                {
+                    "name": call.model,
+                    "kind": "model",
+                    "start_ms": round(cursor, 1),
+                    "duration_ms": float(call.latency_ms),
+                    "ok": call.finish_reason != "length",
+                    "error_type": "truncated" if call.finish_reason == "length" else None,
+                    "detail": {
+                        "seq": call.seq,
+                        "ttft_ms": call.ttft_ms,
+                        "finish_reason": call.finish_reason,
+                        "retries": call.retries,
+                        "input_tokens": call.input_tokens,
+                        "output_tokens": call.output_tokens,
+                        "cached_tokens": call.cached_tokens,
+                        "cost_usd": call.cost_usd,
+                        "tool_call_count": call.tool_call_count,
+                    },
+                }
+            )
+        cursor += ms
+        inner = 0.0
+    return spans
+
+
+@router.get("/turns/{turn_id}/trace")
+async def turn_trace(request: Request, turn_id: RowId) -> Any:
+    if (denied := _guard(request)) is not None:
+        return denied
+    async with request.app.state.sessions() as session:
+        turn = await session.get(TurnLogRow, turn_id)
+        if turn is None:
+            return JSONResponse(status_code=404, content={"error": "Turn not found."})
+        calls = list(
+            (
+                await session.execute(
+                    select(ModelCallRow)
+                    .where(ModelCallRow.turn_id == turn_id)
+                    .order_by(ModelCallRow.seq)
+                )
+            ).scalars()
+        )
+    trace = turn.trace or []
+    return {
+        "turn_id": turn.id,
+        "thread_id": turn.thread_id,
+        "created_at": _iso(turn.created_at),
+        "outcome": turn.outcome,
+        "total_ms": round(
+            sum(
+                float(entry.get("ms") or 0)
+                for entry in trace
+                if not str(entry.get("node") or "").startswith("tool:")
+            ),
+            1,
+        ),
+        "ttft_ms": turn.ttft_ms,
+        "finish_reason": turn.finish_reason,
+        "retries": turn.retries,
+        "error_type": turn.error_type,
+        "spans": _waterfall(trace, calls),
     }
 
 

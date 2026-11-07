@@ -207,3 +207,80 @@ def test_migration_0009_adds_model_calls_and_columns(tmp_path):
     assert {"turn_id", "seq", "model", "ttft_ms", "finish_reason", "retries",
             "tool_call_count"} <= call_columns
     engine.dispose()
+
+
+# ─── read API ─────────────────────────────────────────────────────────────────
+
+ADMIN = {"Authorization": "Bearer test-admin-token"}
+
+
+@pytest.fixture
+def admin_token(monkeypatch):
+    monkeypatch.setenv("ADMIN_TOKEN", "test-admin-token")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
+def seed_tool_turn(client: TestClient, sessions, thread_id: str = "t-perf") -> None:
+    llm, _ = fake_llm([tool_call_stream("get_availability", {}), text_stream("Available now.")])
+    client.app.state.llm.client = llm
+    client.app.state.recorder = TurnRecorder(sessions, provider="gemini", model="m",
+                                             prompt_version="p1")
+    client.post("/api/chat", json={
+        "messages": [{"role": "user", "content": "Is Ruud available?"}], "thread_id": thread_id,
+    })
+
+
+def test_performance_stats_and_turn_trace(sessions, admin_token):
+    with TestClient(create_app()) as client:
+        seed_tool_turn(client, sessions)
+        client.app.state.sessions = sessions
+        stats = client.get("/api/admin/stats/performance?days=7", headers=ADMIN).json()
+        (turn,) = rows(sessions, TurnLogRow)
+        trace = client.get(f"/api/admin/turns/{turn.id}/trace", headers=ADMIN).json()
+        missing = client.get("/api/admin/turns/999/trace", headers=ADMIN)
+        thread = client.get("/api/admin/threads/t-perf", headers=ADMIN).json()
+
+    window = stats["window"]
+    assert (window["turns"], window["answered"], window["model_calls"]) == (1, 1, 2)
+    assert window["model_calls_per_turn"] == 2.0
+    assert window["ttft_p50_ms"] is not None
+    assert window["latency_p50_ms"] == turn.latency_ms
+    assert window["error_rate"] == 0.0 and window["truncation_rate"] == 0.0
+    assert window["retries"] == 0
+    assert window["lengths"]["answer_p50"] == len("Available now.")
+    assert stats["previous"]["turns"] == 0
+    assert len(stats["series"]) == 7 and stats["series"][-1]["turns"] == 1
+    assert stats["time_split_ms"]["model"] > 0 and stats["time_split_ms"]["tools"] >= 0
+    assert stats["tools"] == [{"name": "get_availability", "calls": 1,
+                               "p50_ms": stats["tools"][0]["p50_ms"],
+                               "p95_ms": stats["tools"][0]["p95_ms"],
+                               "failures": 0, "timeouts": 0}]
+    (model,) = stats["models"]
+    active = get_settings().active_model  # fake chunks carry no model name
+    assert (model["model"], model["calls"], model["output_tokens"]) == (active, 2, 80)
+    assert model["finish_reasons"] == {"tool_calls": 1, "stop": 1}
+    (version,) = stats["prompt_versions"]
+    assert (version["prompt_version"], version["turns"]) == ("p1", 1)
+    assert stats["finish_reasons"] == {"stop": 1}
+    assert stats["error_types"] == {}
+
+    assert trace["turn_id"] == turn.id and trace["finish_reason"] == "stop"
+    kinds = [(span["kind"], span["name"]) for span in trace["spans"]]
+    assert kinds == [
+        ("node", "guard_input"), ("node", "generate"), ("model", active),
+        ("tool", "get_availability"), ("node", "execute_tools"),
+        ("node", "generate"), ("model", active), ("node", "verify"),
+    ]
+    starts = [span["start_ms"] for span in trace["spans"]]
+    assert starts == sorted(starts)  # a waterfall: nothing starts before its predecessor
+    first_model, second_model = (s for s in trace["spans"] if s["kind"] == "model")
+    assert first_model["detail"]["seq"] == 0 and first_model["detail"]["tool_call_count"] == 1
+    assert second_model["detail"]["finish_reason"] == "stop"
+    assert trace["total_ms"] >= sum(s["duration_ms"] for s in trace["spans"] if s["kind"] == "tool")
+    assert missing.status_code == 404
+
+    assert thread["turns"][0]["ttft_ms"] == turn.ttft_ms
+    assert thread["turns"][0]["finish_reason"] == "stop"
+    assert thread["turns"][0]["answer_chars"] == len("Available now.")
