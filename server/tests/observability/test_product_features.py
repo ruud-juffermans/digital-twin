@@ -14,7 +14,7 @@ from app.main import create_app
 from app.observability.feedback import record_feedback
 from app.observability.telemetry import TurnRecorder
 from app.storage.models import Base, ContactMessageRow, FeedbackRow, UnansweredQuestionRow
-from tests.test_approvals import ADMIN, DRAFT_INPUT, start_paused_thread
+from tests.api.test_approvals import ADMIN, DRAFT_INPUT, start_paused_thread
 
 
 @pytest.fixture(autouse=True)

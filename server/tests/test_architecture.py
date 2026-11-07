@@ -9,8 +9,6 @@ hub-and-spoke coupling the restructure removed.
 import ast
 from pathlib import Path
 
-import pytest
-
 APP_DIR = Path(__file__).resolve().parent.parent / "app"
 
 COMPONENTS = {"context", "guardrails", "gateway", "actions"}
@@ -34,7 +32,7 @@ def _modules() -> dict[str, Path]:
     return {
         ".".join(["app", *path.relative_to(APP_DIR).with_suffix("").parts]): path
         for path in APP_DIR.rglob("*.py")
-        if "__pycache__" not in path.parts
+        if "__pycache__" not in path.parts and path != APP_DIR / "__init__.py"
     }
 
 
@@ -67,7 +65,6 @@ def _imports(module: str, path: Path) -> set[str]:
     return targets
 
 
-@pytest.mark.xfail(strict=True, reason="until the component layout lands (PRD phase 8)")
 def test_app_has_only_component_folders_at_top_level():
     top_level = {path.stem for path in APP_DIR.glob("*.py")} - {"__init__"}
     assert top_level == ROOT_MODULES
@@ -77,7 +74,6 @@ def test_app_has_only_component_folders_at_top_level():
     assert folders == COMPONENTS | LEAVES | COMPOSERS
 
 
-@pytest.mark.xfail(strict=True, reason="until the component layout lands (PRD phase 8)")
 def test_components_only_import_what_the_rules_allow():
     violations = []
     for module, path in sorted(_modules().items()):
