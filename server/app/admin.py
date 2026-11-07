@@ -32,7 +32,9 @@ class ApprovalDecision(BaseModel):
     note: str | None = Field(default=None, max_length=500)
 
 
-def _unauthorized(request: Request) -> JSONResponse | None:
+def require_admin(request: Request) -> JSONResponse | None:
+    """None when the bearer token matches; otherwise the error response to
+    return. Shared with the read API in admin_read.py."""
     token = get_settings().admin_token
     if not token:
         return JSONResponse(status_code=403, content={"error": "Admin endpoints are disabled."})
@@ -43,7 +45,7 @@ def _unauthorized(request: Request) -> JSONResponse | None:
 
 @router.get("/approvals")
 async def list_approvals(request: Request) -> Any:
-    if (denied := _unauthorized(request)) is not None:
+    if (denied := require_admin(request)) is not None:
         return denied
     return {"pending": await request.app.state.approvals.list()}
 
@@ -52,7 +54,7 @@ async def list_approvals(request: Request) -> Any:
 async def decide_approval(
     request: Request, decision: ApprovalDecision, thread_id: str = THREAD_ID
 ) -> Any:
-    if (denied := _unauthorized(request)) is not None:
+    if (denied := require_admin(request)) is not None:
         return denied
 
     agent = request.app.state.agent

@@ -21,8 +21,12 @@ class AgentState(TypedDict, total=False):
     last_answer: str
     # Usage/cost/latency telemetry of this run's generation.
     last_meta: dict[str, Any] | None
-    # Per-node latency of this run: [{"node": name, "ms": float}].
+    # Per-node latency of this run: [{"node": name, "ms": float}], plus one
+    # {"node": "tool:<name>", "ms", "ok", "error_type"} span per tool call.
     trace: list[dict[str, Any]]
+    # One meta dict per model round of this run (tokens, cost, latency,
+    # ttftMs, finishReason, retries) — the per-call breakdown.
+    model_calls: list[dict[str, Any]]
     # Tool loop (reset per run):
     # calls from the last model turn awaiting deterministic execution,
     # as {"id", "name", "input"}.

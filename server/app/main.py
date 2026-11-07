@@ -2,6 +2,7 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -13,6 +14,7 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from slowapi.errors import RateLimitExceeded
 
 from .admin import router as admin_router
+from .admin_read import router as admin_read_router
 from .agent.budget import BudgetTracker
 from .agent.graph import build_agent
 from .chat import router as chat_router
@@ -23,17 +25,35 @@ from .db import (
     TurnRecorder,
     create_engine_and_sessions,
     load_today_spent,
+    purge_expired_text,
     run_migrations,
 )
 from .embeddings import create_embedder
 from .knowledge import load_knowledge
-from .llm import OpenAICompatProvider
+from .llm import OpenAICompatProvider, knowledge_version, prompt_version
+from .providers import ProviderBalances
+from .providers import router as providers_router
 from .rate_limit import limiter
 from .retrieval import SemanticRetriever, sync_knowledge_chunks
 from .security import install_security
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+RETENTION_INTERVAL_S = 24 * 60 * 60
+
+
+async def _retention_loop(sessions: Any, retention_days: int) -> None:
+    """Clear expired visitor text once at startup, then daily."""
+    while True:
+        try:
+            cleared = await purge_expired_text(sessions, retention_days)
+            if cleared:
+                logger.info("Retention: cleared text on %d turn(s) older than %d days",
+                            cleared, retention_days)
+        except Exception:
+            logger.exception("Retention job failed")
+        await asyncio.sleep(RETENTION_INTERVAL_S)
 
 
 @asynccontextmanager
@@ -55,8 +75,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("Loaded %d knowledge documents", len(app.state.knowledge))
     app.state.llm = OpenAICompatProvider(settings, app.state.knowledge)
     app.state.budget = BudgetTracker(settings.daily_budget_usd)
+    app.state.provider_balances = ProviderBalances()
     engine = None
     embedder = None
+    retention_task: asyncio.Task | None = None
     app.state.sessions = None
     app.state.retriever = None
     if settings.database_url:
@@ -65,7 +87,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         engine, app.state.sessions = create_engine_and_sessions(settings.database_url)
         app.state.approvals = PostgresApprovalStore(app.state.sessions)
         app.state.recorder = TurnRecorder(
-            app.state.sessions, provider=settings.llm_provider, model=settings.active_model
+            app.state.sessions,
+            provider=settings.llm_provider,
+            model=settings.active_model,
+            prompt_version=prompt_version(),
+            kb_version=knowledge_version(app.state.knowledge),
+            store_text=settings.text_retention_days > 0,
+        )
+        retention_task = asyncio.create_task(
+            _retention_loop(app.state.sessions, settings.text_retention_days)
         )
         # The cap survives restarts: seed today's spend from the ledger.
         app.state.budget.restore(await load_today_spent(app.state.sessions))
@@ -106,6 +136,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "semantic" if app.state.retriever is not None else "term-overlap",
         )
         yield
+        if retention_task is not None:
+            retention_task.cancel()
         await app.state.llm.close()
         if embedder is not None:
             await embedder.close()
@@ -126,6 +158,8 @@ def create_app() -> FastAPI:
     install_security(app, get_settings().frame_ancestors)
     app.include_router(chat_router)
     app.include_router(admin_router)
+    app.include_router(admin_read_router)
+    app.include_router(providers_router)
 
     @app.exception_handler(RateLimitExceeded)
     async def rate_limited(_request: Request, _exc: RateLimitExceeded) -> JSONResponse:

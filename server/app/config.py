@@ -32,9 +32,16 @@ class Settings(BaseSettings):
     # Hard daily spend cap (USD); when reached the agent refuses politely
     # until midnight. 0 disables the cap.
     daily_budget_usd: float = 2.0
-    # Bearer token for /api/admin/* (approving high-risk agent actions).
-    # Empty disables the admin endpoints entirely.
+    # Bearer token for /api/admin/* (approvals and the admin panel's read
+    # API). Empty disables the admin endpoints entirely.
     admin_token: str = ""
+    # How long visitor questions, answers and feedback text stay in the
+    # database; after that only the numbers remain. 0 = never store text.
+    text_retention_days: int = 90
+    # Optional OpenAI *admin* key (sk-admin-…) for the organisation Costs
+    # API: OpenAI has no balance endpoint, so the panel shows billed spend
+    # month-to-date instead. Empty = skipped.
+    openai_admin_key: str = ""
     # Postgres for the data platform: checkpoints, approval queue, turn log,
     # budget ledger, knowledge vectors. Empty = no database — everything
     # in-memory, nothing survives a restart (tests, quick bare-metal dev).

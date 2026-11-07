@@ -47,8 +47,14 @@ BUDGET_REFUSAL = (
     "contact Ruud directly via the site."
 )
 
-# Numeric meta fields summed across the tool loop's model rounds.
-METERED_FIELDS = ("inputTokens", "outputTokens", "cachedTokens", "latencyMs")
+# Numeric meta fields summed across the tool loop's model rounds. The other
+# meta fields (model, ttftMs, finishReason) keep the last round's value; the
+# per-round detail lives in `model_calls`.
+METERED_FIELDS = ("inputTokens", "outputTokens", "cachedTokens", "latencyMs", "retries")
+
+# Observability vocabulary for tool spans in the run trace.
+TOOL_ERROR_TIMEOUT = "tool_timeout"
+TOOL_ERROR_FAILED = "tool_failed"
 
 
 def _traced(name: str, fn: Callable[[AgentState], Any]) -> Callable[[AgentState], Any]:
@@ -91,6 +97,12 @@ def _assistant_message(text: str, calls: list[dict[str, Any]]) -> dict[str, Any]
 
 def _tool_message(call: dict[str, Any], content: str) -> dict[str, Any]:
     return {"role": "tool", "tool_call_id": call["id"], "content": content}
+
+
+def _tool_span(name: str, ms: float, *, error_type: str | None) -> dict[str, Any]:
+    """A timed tool execution inside the run trace, next to the node timings.
+    Names only — tool arguments may carry visitor text and stay out of it."""
+    return {"node": f"tool:{name}", "ms": ms, "ok": error_type is None, "error_type": error_type}
 
 
 async def _call_tool(tool: Any, arguments: dict[str, Any]) -> Any:
@@ -137,6 +149,7 @@ def build_agent(
             "last_answer": "",
             "last_meta": None,
             "trace": [],
+            "model_calls": [],
             "pending_tools": [],
             "loop_messages": [],
             "tool_rounds": 0,
@@ -163,6 +176,7 @@ def build_agent(
         citations = list(state.get("citations") or [])
         flags = list(state.get("guard_flags") or [])
         meta_totals = dict(state.get("loop_meta") or {})
+        model_calls = list(state.get("model_calls") or [])
         turn: dict[str, Any] = {}
         async for event in get_provider().stream(state["turns"], **kwargs):
             if event["type"] == "turn":
@@ -170,6 +184,9 @@ def build_agent(
                 continue
             if event["type"] == "meta":
                 meta_totals = _accumulate_meta(meta_totals, event)
+                # One entry per model round, in order: the per-call breakdown
+                # the summed meta cannot give.
+                model_calls.append({key: value for key, value in event.items() if key != "type"})
                 continue
             if event["type"] == "text":
                 answer += event["text"]
@@ -189,6 +206,7 @@ def build_agent(
             "citations": citations,
             "guard_flags": flags,
             "loop_meta": meta_totals,
+            "model_calls": model_calls,
             "pending_tools": [],
         }
         calls = turn.get("toolCalls") or []
@@ -240,6 +258,7 @@ def build_agent(
         used = list(state.get("tools_used") or [])
         drafts = list(state.get("contact_drafts") or [])
         approval = state.get("approval") or {}
+        spans = list(state.get("trace") or [])
         results = []
         for call in state.get("pending_tools") or []:
             name = call["name"]
@@ -248,6 +267,7 @@ def build_agent(
             tool = tools_by_name.get(name)
             if tool is None:
                 results.append(_tool_message(call, f"Unknown tool: {name}"))
+                spans.append(_tool_span(name, 0.0, error_type=TOOL_ERROR_FAILED))
                 continue
             if tool.high_risk and not approval.get("approved"):
                 # Fail closed: without an explicit approval the action never runs.
@@ -259,18 +279,25 @@ def build_agent(
                 continue
             if tool.high_risk:
                 drafts.append({"tool": name, "input": call["input"]})
+            started = time.perf_counter()
+            error_type: str | None = None
             try:
                 value = await asyncio.wait_for(
                     _call_tool(tool, call["input"]), timeout=tool.timeout_s
                 )
                 results.append(_tool_message(call, json.dumps(value)))
             except TimeoutError:
+                error_type = TOOL_ERROR_TIMEOUT
                 logger.error("Tool %s timed out after %.1fs", name, tool.timeout_s)
                 results.append(_tool_message(call, "Tool timed out."))
             except Exception:
+                error_type = TOOL_ERROR_FAILED
                 logger.exception("Tool %s failed", name)
                 results.append(_tool_message(call, "Tool failed."))
+            elapsed_ms = round((time.perf_counter() - started) * 1000, 1)
+            spans.append(_tool_span(name, elapsed_ms, error_type=error_type))
         return {
+            "trace": spans,
             "pending_tools": [],
             "loop_messages": [*(state.get("loop_messages") or []), *results],
             "tool_rounds": (state.get("tool_rounds") or 0) + 1,
