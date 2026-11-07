@@ -1,13 +1,8 @@
 from fastapi.testclient import TestClient
 
-from app.agent.guards import (
-    INPUT_REFUSAL,
-    OFFTOPIC_REDIRECT,
-    PII_REFUSAL,
-    looks_like_refusal,
-    screen_input,
-    valid_citation,
-)
+from app.guardrails.input import screen_input
+from app.guardrails.output import looks_like_refusal, valid_citation
+from app.guardrails.policies import INPUT_REFUSAL, OFFTOPIC_REDIRECT, PII_REFUSAL
 from app.main import create_app
 from tests.conftest import fake_llm, parse_events, text_stream, visible
 

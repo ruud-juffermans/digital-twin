@@ -3,7 +3,7 @@ import time
 from fastapi.testclient import TestClient
 
 from app.agent.budget import BudgetTracker
-from app.agent.graph import BUDGET_REFUSAL
+from app.guardrails.policies import BUDGET_REFUSAL
 from app.main import create_app
 from tests.conftest import fake_llm, parse_events, text_stream
 

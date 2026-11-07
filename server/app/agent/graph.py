@@ -30,22 +30,16 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
 from ..context.knowledge import KnowledgeDoc
+from ..guardrails.input import screen_input
+from ..guardrails.output import looks_like_refusal, uncited_answer, valid_citation
+from ..guardrails.policies import BUDGET_REFUSAL
 from .budget import BudgetTracker
-from .guards import looks_like_refusal, screen_input, valid_citation
 from .state import AgentState
 from .tools import build_tools, tool_definitions
 
 logger = logging.getLogger(__name__)
 
 MAX_TOOL_ROUNDS = 3
-
-# Answers longer than this without a single citation get flagged for review.
-UNCITED_ANSWER_MIN_CHARS = 200
-
-BUDGET_REFUSAL = (
-    "I've reached my usage budget for today — please come back tomorrow, or "
-    "contact Ruud directly via the site."
-)
 
 # Numeric meta fields summed across the tool loop's model rounds. The other
 # meta fields (model, ttftMs, finishReason) keep the last round's value; the
@@ -315,14 +309,13 @@ def build_agent(
         flags = list(state.get("guard_flags") or [])
         answer = state.get("last_answer") or ""
         refusal = looks_like_refusal(answer)
-        if (
-            len(answer) >= UNCITED_ANSWER_MIN_CHARS
-            and not state.get("citations")
-            and not state.get("tool_rounds")  # tool results are grounding too
-            and not refusal
+        if uncited_answer(
+            answer,
+            citations=list(state.get("citations") or []),
+            tool_rounds=state.get("tool_rounds") or 0,
         ):
-            # Groundedness check: a substantive factual answer with zero
-            # citations is a hallucination risk — flag it for review.
+            # A substantive factual answer with zero citations is a
+            # hallucination risk — flag it for review.
             flags.append("output:uncited-answer")
             logger.warning("Uncited answer flagged (%d chars)", len(answer))
         get_stream_writer()(

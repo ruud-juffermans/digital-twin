@@ -15,8 +15,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.agent.graph import build_agent
 from app.agent.tools import build_tools
 from app.config import Settings
-from app.context.knowledge import KnowledgeDoc
 from app.context.chunking import split_into_chunks
+from app.context.knowledge import KnowledgeDoc
 from app.context.retrieval import sync_knowledge_chunks
 from app.gateway.embeddings import EMBED_BATCH_SIZE, OpenAICompatEmbeddings
 from app.pipeline.provider import grounded_provider
