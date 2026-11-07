@@ -147,6 +147,7 @@ def build_agent(
             "guard_flags": flags,
             "citations": [],
             "last_answer": "",
+            "model_refusal": False,
             "last_meta": None,
             "trace": [],
             "model_calls": [],
@@ -313,11 +314,12 @@ def build_agent(
             budget.add(cost)
         flags = list(state.get("guard_flags") or [])
         answer = state.get("last_answer") or ""
+        refusal = looks_like_refusal(answer)
         if (
             len(answer) >= UNCITED_ANSWER_MIN_CHARS
             and not state.get("citations")
             and not state.get("tool_rounds")  # tool results are grounding too
-            and not looks_like_refusal(answer)
+            and not refusal
         ):
             # Groundedness check: a substantive factual answer with zero
             # citations is a hallucination risk — flag it for review.
@@ -332,6 +334,7 @@ def build_agent(
         )
         return {
             "guard_flags": flags,
+            "model_refusal": refusal,
             "message_count": (state.get("message_count") or 0) + 1,
             "total_cost_usd": round((state.get("total_cost_usd") or 0.0) + cost, 5),
         }

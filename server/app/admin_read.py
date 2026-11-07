@@ -22,7 +22,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from .admin import require_admin
 from .config import get_settings
-from .db import (
+from .llm import SYSTEM_PROMPT, knowledge_version, prompt_version
+from .storage.models import (
     BudgetLedgerRow,
     ContactMessageRow,
     EvalCaseRow,
@@ -34,7 +35,6 @@ from .db import (
     TurnLogRow,
     UnansweredQuestionRow,
 )
-from .llm import SYSTEM_PROMPT, knowledge_version, prompt_version
 
 router = APIRouter(prefix="/api/admin")
 

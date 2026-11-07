@@ -11,20 +11,14 @@ from fastapi.testclient import TestClient
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from app.actions.approval import PostgresApprovalStore
 from app.config import get_settings
-from app.db import (
-    Base,
-    EvalRunRow,
-    FeedbackRow,
-    PostgresApprovalStore,
-    TurnLogRow,
-    TurnRecorder,
-    UnansweredQuestionRow,
-    purge_expired_text,
-    record_eval_run,
-    record_feedback,
-)
 from app.main import create_app
+from app.observability.evals import record_eval_run
+from app.observability.feedback import record_feedback
+from app.observability.retention import purge_expired_text
+from app.observability.telemetry import TurnRecorder
+from app.storage.models import Base, EvalRunRow, FeedbackRow, TurnLogRow, UnansweredQuestionRow
 from tests.conftest import fake_llm, text_stream, tool_call_stream
 
 ADMIN = {"Authorization": "Bearer test-admin-token"}

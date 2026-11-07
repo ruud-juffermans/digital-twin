@@ -20,8 +20,8 @@ from typing import Any
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from .db import KnowledgeChunkRow
 from .knowledge import KnowledgeDoc
+from .storage.models import KnowledgeChunkRow
 
 logger = logging.getLogger(__name__)
 

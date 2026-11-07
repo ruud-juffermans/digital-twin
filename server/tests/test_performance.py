@@ -13,11 +13,13 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.chat import classify_error, turn_error_type
 from app.config import get_settings
-from app.db import Base, ModelCallRow, TurnLogRow, TurnRecorder, run_migrations
 from app.knowledge import KnowledgeDoc
 from app.llm import OpenAICompatProvider
 from app.main import create_app
+from app.observability.telemetry import TurnRecorder
 from app.openai_client import OpenAICompatClient, OpenAICompatError
+from app.storage.engine import run_migrations
+from app.storage.models import Base, ModelCallRow, TurnLogRow
 from tests.conftest import fake_llm, parse_events, sse_bytes, text_stream, tool_call_stream
 
 DOCS = [KnowledgeDoc(title="Curriculum Vitae", slug="cv", text="Ruud is a data engineer.")]

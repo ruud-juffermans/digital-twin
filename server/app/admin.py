@@ -18,8 +18,8 @@ from fastapi.responses import JSONResponse
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
+from .actions.approval import archive_contact_messages
 from .config import get_settings
-from .db import archive_contact_messages
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin")

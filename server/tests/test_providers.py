@@ -10,9 +10,10 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.config import Settings, get_settings
-from app.db import Base, TurnRecorder
 from app.main import create_app
+from app.observability.telemetry import TurnRecorder
 from app.providers import ProviderBalances
+from app.storage.models import Base
 
 ADMIN = {"Authorization": "Bearer test-admin-token"}
 

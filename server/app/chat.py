@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from .agent.graph import TOOL_ERROR_FAILED, TOOL_ERROR_TIMEOUT
 from .config import get_settings
-from .db import record_feedback
+from .observability.feedback import record_feedback
 from .openai_client import OpenAICompatError
 from .rate_limit import limiter
 from .schemas import ChatRequest, FeedbackRequest
@@ -186,6 +186,7 @@ async def stream_sse(
     trace: list[dict[str, Any]] = []
     model_calls: list[dict[str, Any]] = []
     context_chars: int | None = None
+    model_refusal = False
     try:
         async for event in agent.astream({"turns": turns}, config, stream_mode="custom"):
             if event["type"] == "meta":
@@ -207,6 +208,7 @@ async def stream_sse(
         context_chars = context_chars_from_messages(loop_messages)
         trace = list(snapshot.values.get("trace") or [])
         model_calls = list(snapshot.values.get("model_calls") or [])
+        model_refusal = bool(snapshot.values.get("model_refusal"))
         if snapshot.values.get("refusal"):
             outcome = "refused"
         if snapshot.interrupts:
@@ -252,4 +254,5 @@ async def stream_sse(
             trace=trace,
             model_calls=model_calls,
             context_chars=context_chars,
+            model_refusal=model_refusal,
         )

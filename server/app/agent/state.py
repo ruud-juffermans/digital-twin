@@ -19,6 +19,9 @@ class AgentState(TypedDict, total=False):
     citations: list[str]
     # Full answer text of this run (for deterministic output checks).
     last_answer: str
+    # Set by verify: the answer reads as an honest "not in my knowledge base"
+    # (content-gap analytics, not a guard trip).
+    model_refusal: bool
     # Usage/cost/latency telemetry of this run's generation.
     last_meta: dict[str, Any] | None
     # Per-node latency of this run: [{"node": name, "ms": float}], plus one

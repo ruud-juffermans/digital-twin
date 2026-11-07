@@ -28,10 +28,11 @@ from langgraph.types import Command
 
 from app.agent.graph import build_agent
 from app.config import Settings, get_settings
-from app.db import create_engine_and_sessions, record_eval_run, run_migrations
 from app.knowledge import load_knowledge
 from app.llm import PROVIDERS, OpenAICompatProvider
+from app.observability.evals import record_eval_run
 from app.openai_client import OpenAICompatClient
+from app.storage.engine import create_engine_and_sessions, run_migrations
 
 from .scoring import score_completion, score_tool_selection
 

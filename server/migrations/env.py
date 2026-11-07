@@ -1,4 +1,4 @@
-"""Alembic environment: migrates the app tables declared in app.db.
+"""Alembic environment: migrates the app tables declared in app.storage.models.
 
 The LangGraph checkpointer (Commit 22) manages its own tables through
 AsyncPostgresSaver.setup() and is deliberately outside alembic's control.
@@ -9,7 +9,8 @@ import os
 from alembic import context
 from sqlalchemy import create_engine, pool
 
-from app.db import Base, sqlalchemy_url
+from app.storage.engine import sqlalchemy_url
+from app.storage.models import Base
 
 config = context.config
 target_metadata = Base.metadata

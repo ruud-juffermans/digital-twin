@@ -28,7 +28,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from .admin import require_admin
 from .config import Settings, get_settings
-from .db import TurnLogRow
+from .storage.models import TurnLogRow
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin")

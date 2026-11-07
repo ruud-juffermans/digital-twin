@@ -8,17 +8,12 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from app.actions.approval import archive_contact_messages
 from app.config import get_settings
-from app.db import (
-    Base,
-    ContactMessageRow,
-    FeedbackRow,
-    TurnRecorder,
-    UnansweredQuestionRow,
-    archive_contact_messages,
-    record_feedback,
-)
 from app.main import create_app
+from app.observability.feedback import record_feedback
+from app.observability.telemetry import TurnRecorder
+from app.storage.models import Base, ContactMessageRow, FeedbackRow, UnansweredQuestionRow
 from tests.test_approvals import ADMIN, DRAFT_INPUT, start_paused_thread
 
 
@@ -82,6 +77,7 @@ def test_recorder_logs_unanswered_questions(sessions):
         recorder,
         visitor_message="What is Ruud's favorite color?",
         answer="The knowledge base doesn't mention Ruud's favorite color.",
+        model_refusal=True,
     )
 
     unanswered = rows(sessions, UnansweredQuestionRow)
