@@ -2,10 +2,10 @@
 gateway's chat completions client. The one place both are imported."""
 
 from ..config import Settings
+from ..context.knowledge import KnowledgeDoc
+from ..context.prompt import knowledge_system_prompt
 from ..gateway.chat_model import OpenAICompatProvider
 from ..gateway.client import OpenAICompatClient
-from ..knowledge import KnowledgeDoc
-from ..llm import knowledge_system_prompt
 
 
 def grounded_provider(

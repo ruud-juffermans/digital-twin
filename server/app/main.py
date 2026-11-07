@@ -19,16 +19,16 @@ from .agent.budget import BudgetTracker
 from .agent.graph import build_agent
 from .chat import router as chat_router
 from .config import Settings, get_settings
+from .context.knowledge import load_knowledge
+from .context.prompt import knowledge_version, prompt_version
+from .context.retrieval import SemanticRetriever, sync_knowledge_chunks
 from .gateway.balances import ProviderBalances
 from .gateway.embeddings import create_embedder
-from .knowledge import load_knowledge
-from .llm import knowledge_version, prompt_version
 from .observability.retention import retention_loop
 from .observability.telemetry import TurnRecorder, load_today_spent
 from .pipeline.provider import grounded_provider
 from .providers import router as providers_router
 from .rate_limit import limiter
-from .retrieval import SemanticRetriever, sync_knowledge_chunks
 from .security import install_security
 from .storage.engine import create_engine_and_sessions, run_migrations
 

@@ -29,7 +29,7 @@ from langgraph.config import get_stream_writer
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
-from ..knowledge import KnowledgeDoc
+from ..context.knowledge import KnowledgeDoc
 from .budget import BudgetTracker
 from .guards import looks_like_refusal, screen_input, valid_citation
 from .state import AgentState

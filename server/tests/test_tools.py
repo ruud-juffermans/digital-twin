@@ -1,5 +1,5 @@
 from app.agent.tools import build_tools, tool_definitions
-from app.knowledge import KnowledgeDoc
+from app.context.knowledge import KnowledgeDoc
 
 
 def make_doc(title: str, text: str) -> KnowledgeDoc:

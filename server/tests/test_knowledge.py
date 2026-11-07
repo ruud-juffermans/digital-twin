@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from app.knowledge import load_knowledge
+from app.context.knowledge import load_knowledge
 
 
 def test_loads_docs_with_titles(tmp_path: Path):

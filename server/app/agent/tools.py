@@ -12,12 +12,12 @@ vector search fails or comes back empty.
 """
 
 import logging
-import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from ..knowledge import KnowledgeDoc
+from ..context.knowledge import KnowledgeDoc
+from ..context.retrieval import make_search
 
 logger = logging.getLogger(__name__)
 
@@ -35,10 +35,6 @@ AVAILABILITY = {
     "note": "This assistant cannot make commitments; for anything contractual, contact Ruud.",
 }
 
-MAX_SEARCH_RESULTS = 3
-MAX_SNIPPET_CHARS = 500
-
-
 @dataclass(frozen=True)
 class Tool:
     name: str
@@ -50,37 +46,8 @@ class Tool:
     high_risk: bool = False
 
 
-def _search(docs: list[KnowledgeDoc], query: str) -> list[dict[str, str]]:
-    """Rank knowledge paragraphs by term overlap with the query."""
-    terms = {term for term in re.findall(r"\w+", query.lower()) if len(term) > 2}
-    scored: list[tuple[int, str, str]] = []
-    for doc in docs:
-        for paragraph in doc.text.split("\n\n"):
-            words = set(re.findall(r"\w+", paragraph.lower()))
-            if score := len(terms & words):
-                scored.append((score, doc.title, paragraph.strip()))
-    top = sorted(scored, key=lambda item: -item[0])[:MAX_SEARCH_RESULTS]
-    return [{"document": title, "snippet": text[:MAX_SNIPPET_CHARS]} for _, title, text in top]
-
-
-def _semantic_search(docs: list[KnowledgeDoc], retriever: Any) -> Callable[..., Any]:
-    async def run(query: str) -> list[dict[str, str]]:
-        try:
-            results = await retriever.search(query)
-        except Exception:
-            logger.exception("Semantic search failed; falling back to term overlap")
-            results = []
-        return results or _search(docs, query)
-
-    return run
-
-
 def build_tools(docs: list[KnowledgeDoc], retriever: Any = None) -> dict[str, Tool]:
-    search = (
-        _semantic_search(docs, retriever)
-        if retriever is not None
-        else (lambda query: _search(docs, query))
-    )
+    search = make_search(docs, retriever)
     return {
         tool.name: tool
         for tool in (

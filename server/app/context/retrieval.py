@@ -1,83 +1,61 @@
-"""Semantic retrieval over the knowledge base.
+"""Retrieval over the knowledge base: term overlap as the baseline, cosine
+search over embedded chunks when a vector store is wired in.
 
-Chunking + sync: every knowledge document is split into heading-scoped
-paragraph chunks, hashed, and embedded into the knowledge_chunks table. Sync
-is incremental — only chunks whose text changed since the last run are
-re-embedded, chunks whose text disappeared are removed, and a
-provider/model switch re-embeds the lot (hash and model scope every row).
+Sync is incremental: only chunks whose text changed since the last run are
+re-embedded, chunks whose text disappeared are removed, and a provider or
+model switch re-embeds the lot (hash and model scope every row).
 
-Search: `SemanticRetriever.search` embeds the query and ranks chunks by
-cosine distance in Postgres. The term-overlap fallback lives in
-agent/tools.py, which owns the tool contract.
+`make_search` is what the search tool runs: semantic when a retriever is
+present, falling back to term overlap when it fails or returns nothing.
 """
 
-import hashlib
 import logging
 import re
-from dataclasses import dataclass
+from collections.abc import Callable
 from typing import Any
 
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from ..storage.models import KnowledgeChunkRow
+from .chunking import Chunk, split_into_chunks
 from .knowledge import KnowledgeDoc
-from .storage.models import KnowledgeChunkRow
 
 logger = logging.getLogger(__name__)
 
-MIN_CHUNK_CHARS = 30
 MAX_SEARCH_RESULTS = 3
 MAX_SNIPPET_CHARS = 500
 
-_ANY_HEADING = re.compile(r"^#{1,6}\s+")
-# Only ## and deeper become chunk context — an H1 would repeat the doc
-# title, which is already in every chunk's embed prefix.
-_SECTION_HEADING = re.compile(r"^#{2,6}\s+(.+)$")
+
+def term_search(docs: list[KnowledgeDoc], query: str) -> list[dict[str, str]]:
+    """Rank knowledge paragraphs by term overlap with the query."""
+    terms = {term for term in re.findall(r"\w+", query.lower()) if len(term) > 2}
+    scored: list[tuple[int, str, str]] = []
+    for doc in docs:
+        for paragraph in doc.text.split("\n\n"):
+            words = set(re.findall(r"\w+", paragraph.lower()))
+            if score := len(terms & words):
+                scored.append((score, doc.title, paragraph.strip()))
+    top = sorted(scored, key=lambda item: -item[0])[:MAX_SEARCH_RESULTS]
+    return [{"document": title, "snippet": text[:MAX_SNIPPET_CHARS]} for _, title, text in top]
 
 
-@dataclass(frozen=True)
-class Chunk:
-    doc_slug: str
-    doc_title: str
-    heading: str
-    index: int
-    content: str
+def make_search(docs: list[KnowledgeDoc], retriever: Any = None) -> Callable[..., Any]:
+    """The search callable for the search_knowledge tool: sync term overlap
+    without a retriever, async semantic search with one (term overlap as the
+    fallback whenever the vector store fails or comes back empty)."""
+    if retriever is None:
+        return lambda query: term_search(docs, query)
 
-    @property
-    def embed_text(self) -> str:
-        """What gets embedded and hashed: title + heading give the paragraph
-        the context it loses when pulled out of its document."""
-        prefix = f"{self.doc_title} — {self.heading}" if self.heading else self.doc_title
-        return f"{prefix}\n\n{self.content}"
+    async def run(query: str) -> list[dict[str, str]]:
+        try:
+            results = await retriever.search(query)
+        except Exception:
+            logger.exception("Semantic search failed; falling back to term overlap")
+            results = []
+        return results or term_search(docs, query)
 
-    @property
-    def content_hash(self) -> str:
-        return hashlib.sha256(self.embed_text.encode()).hexdigest()
-
-
-def split_into_chunks(doc: KnowledgeDoc) -> list[Chunk]:
-    """Heading-scoped paragraph chunks; tiny fragments dropped."""
-    chunks: list[Chunk] = []
-    heading = ""
-    for block in doc.text.split("\n\n"):
-        lines = []
-        for line in block.strip().splitlines():
-            if (match := _SECTION_HEADING.match(line)) is not None:
-                heading = match.group(1).strip()
-            elif _ANY_HEADING.match(line) is None:
-                lines.append(line)
-        content = "\n".join(lines).strip()
-        if len(content) >= MIN_CHUNK_CHARS:
-            chunks.append(
-                Chunk(
-                    doc_slug=doc.slug,
-                    doc_title=doc.title,
-                    heading=heading,
-                    index=len(chunks),
-                    content=content,
-                )
-            )
-    return chunks
+    return run
 
 
 async def sync_knowledge_chunks(
@@ -129,8 +107,8 @@ async def sync_knowledge_chunks(
 
 
 class SemanticRetriever:
-    """Cosine-distance search over knowledge_chunks. Raises on failure — the
-    search tool in agent/tools.py catches and falls back to term overlap."""
+    """Cosine-distance search over knowledge_chunks. Raises on failure;
+    `make_search` catches and falls back to term overlap."""
 
     def __init__(self, embedder: Any, sessions: async_sessionmaker) -> None:
         self._embedder = embedder

@@ -13,9 +13,9 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.chat import classify_error, turn_error_type
 from app.config import get_settings
+from app.context.knowledge import KnowledgeDoc
 from app.gateway.chat_model import OpenAICompatProvider
 from app.gateway.client import OpenAICompatClient, OpenAICompatError
-from app.knowledge import KnowledgeDoc
 from app.main import create_app
 from app.observability.telemetry import TurnRecorder
 from app.pipeline.provider import grounded_provider

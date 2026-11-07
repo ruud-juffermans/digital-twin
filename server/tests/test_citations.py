@@ -2,8 +2,8 @@ import asyncio
 from typing import Any
 
 from app.config import Settings
+from app.context.knowledge import KnowledgeDoc
 from app.gateway.client import OpenAICompatClient
-from app.knowledge import KnowledgeDoc
 from app.pipeline.provider import grounded_provider
 from tests.conftest import fake_transport
 
