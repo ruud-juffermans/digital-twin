@@ -2,10 +2,10 @@ import asyncio
 
 from langgraph.checkpoint.memory import InMemorySaver
 
-from app.agent.graph import build_agent
 from app.config import Settings
 from app.context.knowledge import load_knowledge
 from app.gateway.client import OpenAICompatClient
+from app.pipeline.graph import build_agent
 from app.pipeline.provider import grounded_provider
 from evals.run import FlakyTransport, eval_tool_selection, load_dataset, run_case
 from evals.scoring import looks_like_refusal, score_completion, score_tool_selection

@@ -13,12 +13,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.actions.tools.registry import build_tools
-from app.agent.graph import build_agent
 from app.config import Settings
 from app.context.chunking import split_into_chunks
 from app.context.knowledge import KnowledgeDoc
 from app.context.retrieval import make_search, sync_knowledge_chunks
 from app.gateway.embeddings import EMBED_BATCH_SIZE, OpenAICompatEmbeddings
+from app.pipeline.graph import build_agent
 from app.pipeline.provider import grounded_provider
 from app.storage.models import Base, KnowledgeChunkRow
 from tests.conftest import fake_llm, text_stream, tool_call_stream

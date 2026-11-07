@@ -26,12 +26,12 @@ import httpx
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
-from app.agent.graph import build_agent
 from app.config import Settings, get_settings
 from app.context.knowledge import load_knowledge
 from app.gateway.client import OpenAICompatClient
 from app.gateway.providers import PROVIDERS
 from app.observability.evals import record_eval_run
+from app.pipeline.graph import build_agent
 from app.pipeline.provider import grounded_provider
 from app.storage.engine import create_engine_and_sessions, run_migrations
 

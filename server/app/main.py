@@ -16,7 +16,6 @@ from .actions.approval import InMemoryApprovalStore, PostgresApprovalStore
 from .actions.budget import BudgetTracker
 from .admin import router as admin_router
 from .admin_read import router as admin_read_router
-from .agent.graph import build_agent
 from .chat import router as chat_router
 from .config import Settings, get_settings
 from .context.knowledge import load_knowledge
@@ -26,6 +25,7 @@ from .gateway.balances import ProviderBalances
 from .gateway.embeddings import create_embedder
 from .observability.retention import retention_loop
 from .observability.telemetry import TurnRecorder, load_today_spent
+from .pipeline.graph import build_agent
 from .pipeline.provider import grounded_provider
 from .providers import router as providers_router
 from .rate_limit import limiter
