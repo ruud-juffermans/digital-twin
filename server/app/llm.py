@@ -114,6 +114,8 @@ class OpenAICompatProvider:
     ) -> AsyncIterator[dict[str, Any]]:
         """Stream one model turn as events: text, citation, then turn and meta.
 
+        The meta event is one model call's telemetry: tokens, cost, latency,
+        time to first token, finish reason and how many retries it took.
         `extension` carries the tool loop's assistant/tool messages after the
         visitor's turns; `tool_choice="none"` forces a text answer.
         """
@@ -136,10 +138,12 @@ class OpenAICompatProvider:
         model = self._model
         usage: dict[str, Any] = {}
         finish_reason: str | None = None
+        first_token_ms: int | None = None
+        stats: dict[str, Any] = {}
         answer = ""
         cited: set[str] = set()
         calls: dict[int, dict[str, Any]] = {}
-        async for chunk in self.client.stream(payload):
+        async for chunk in self.client.stream(payload, stats):
             model = chunk.get("model") or model
             if chunk.get("usage"):
                 usage = chunk["usage"]
@@ -148,6 +152,10 @@ class OpenAICompatProvider:
                 continue
             finish_reason = choices[0].get("finish_reason") or finish_reason
             delta = choices[0].get("delta") or {}
+            if first_token_ms is None and (delta.get("content") or delta.get("tool_calls")):
+                # Time to first token: the first delta that carries output,
+                # text or a tool call, measured from the request (retries included).
+                first_token_ms = round((time.monotonic() - started) * 1000)
             if delta.get("content"):
                 answer += delta["content"]
                 yield {"type": "text", "text": delta["content"]}
@@ -181,6 +189,11 @@ class OpenAICompatProvider:
             "type": "meta",
             "model": model,
             "latencyMs": round((time.monotonic() - started) * 1000),
+            "ttftMs": first_token_ms,
+            "finishReason": finish_reason,
+            "retries": stats.get("retries") or 0,
+            "toolCallCount": len(calls),
+            "outputChars": len(answer),
             "inputTokens": input_tokens,
             "outputTokens": output_tokens,
             "cachedTokens": _cached_tokens(usage),

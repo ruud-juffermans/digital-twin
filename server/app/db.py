@@ -124,6 +124,62 @@ class TurnLogRow(Base):
     # ran embedded (widget on the portfolio) or standalone.
     locale: Mapped[str | None] = mapped_column(String(16), nullable=True)
     embed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # Performance telemetry (migration 0009), never purged: no visitor text.
+    # Time from the request to the first text the visitor saw.
+    ttft_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Finish reason of the final model call ("stop", "length", "tool_calls", …).
+    finish_reason: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Failed attempts across the turn's model calls (transport errors, 429, 5xx).
+    retries: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Worst problem of the turn, or null: one of ERROR_TYPES.
+    error_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Run trace: [{"node", "ms"}] per graph node and
+    # [{"node": "tool:<name>", "ms", "ok", "error_type"}] per tool call.
+    trace: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONVariant, nullable=True)
+    # Length metrics, kept after the text itself is purged. context_chars is
+    # the size of the tool results fed back to the model (the dynamic context).
+    question_chars: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    context_chars: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    answer_chars: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+# Fixed vocabulary for turn_log.error_type, most severe first.
+ERROR_TYPES = (
+    "timeout",        # the provider did not answer in time
+    "rate_limited",   # 429 after retries
+    "provider_5xx",   # provider-side failure after retries
+    "tool_timeout",   # a tool hit its timeout (the turn may still have answered)
+    "tool_failed",    # a tool raised
+    "truncated",      # the model stopped at max_tokens (finish_reason "length")
+    "other",          # anything else that ended the turn in an error
+)
+
+
+class ModelCallRow(Base):
+    """One model round of a turn — the per-call breakdown the summed turn
+    numbers cannot give (a tool-using turn is two or more calls)."""
+
+    __tablename__ = "model_calls"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    turn_id: Mapped[int] = mapped_column(
+        ForeignKey("turn_log.id", ondelete="CASCADE"), index=True
+    )
+    created_at: Mapped[Any] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+    seq: Mapped[int] = mapped_column(Integer)  # 0-based round within the turn
+    model: Mapped[str] = mapped_column(String(100))
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cached_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    latency_ms: Mapped[int] = mapped_column(Integer, default=0)
+    ttft_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    finish_reason: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    retries: Mapped[int] = mapped_column(Integer, default=0)
+    tool_call_count: Mapped[int] = mapped_column(Integer, default=0)
+    output_chars: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class BudgetLedgerRow(Base):
@@ -349,6 +405,11 @@ class TurnRecorder:
         retrieved_chunks: list[dict[str, Any]] | None = None,
         locale: str | None = None,
         embed: bool | None = None,
+        ttft_ms: int | None = None,
+        error_type: str | None = None,
+        trace: list[dict[str, Any]] | None = None,
+        model_calls: list[dict[str, Any]] | None = None,
+        context_chars: int | None = None,
     ) -> None:
         meta = meta or {}
         cost = float(meta.get("costUsd") or 0.0)
@@ -363,26 +424,53 @@ class TurnRecorder:
             }
         try:
             async with self._sessions() as session:
-                session.add(
-                    TurnLogRow(
-                        thread_id=thread_id,
-                        provider=self._provider,
-                        model=self._model,
-                        outcome=outcome,
-                        input_tokens=int(meta.get("inputTokens") or 0),
-                        output_tokens=int(meta.get("outputTokens") or 0),
-                        cached_tokens=int(meta.get("cachedTokens") or 0),
-                        cost_usd=cost,
-                        latency_ms=int(meta.get("latencyMs") or 0),
-                        tools_used=tools_used,
-                        guard_flags=guard_flags,
-                        prompt_version=self._prompt_version,
-                        kb_version=self._kb_version,
-                        locale=locale,
-                        embed=embed,
-                        **text_columns,
-                    )
+                turn = TurnLogRow(
+                    thread_id=thread_id,
+                    provider=self._provider,
+                    model=self._model,
+                    outcome=outcome,
+                    input_tokens=int(meta.get("inputTokens") or 0),
+                    output_tokens=int(meta.get("outputTokens") or 0),
+                    cached_tokens=int(meta.get("cachedTokens") or 0),
+                    cost_usd=cost,
+                    latency_ms=int(meta.get("latencyMs") or 0),
+                    tools_used=tools_used,
+                    guard_flags=guard_flags,
+                    prompt_version=self._prompt_version,
+                    kb_version=self._kb_version,
+                    locale=locale,
+                    embed=embed,
+                    ttft_ms=ttft_ms,
+                    finish_reason=meta.get("finishReason"),
+                    retries=int(meta.get("retries") or 0) if meta else None,
+                    error_type=error_type,
+                    trace=trace,
+                    question_chars=len(visitor_message),
+                    context_chars=context_chars,
+                    answer_chars=len(answer),
+                    **text_columns,
                 )
+                session.add(turn)
+                if model_calls:
+                    await session.flush()  # assigns turn.id for the call rows
+                    for seq, call in enumerate(model_calls):
+                        session.add(
+                            ModelCallRow(
+                                turn_id=turn.id,
+                                seq=seq,
+                                model=str(call.get("model") or self._model),
+                                input_tokens=int(call.get("inputTokens") or 0),
+                                output_tokens=int(call.get("outputTokens") or 0),
+                                cached_tokens=int(call.get("cachedTokens") or 0),
+                                cost_usd=float(call.get("costUsd") or 0.0),
+                                latency_ms=int(call.get("latencyMs") or 0),
+                                ttft_ms=call.get("ttftMs"),
+                                finish_reason=call.get("finishReason"),
+                                retries=int(call.get("retries") or 0),
+                                tool_call_count=int(call.get("toolCallCount") or 0),
+                                output_chars=int(call.get("outputChars") or 0),
+                            )
+                        )
                 if guard_flags:
                     session.add(
                         GuardIncidentRow(

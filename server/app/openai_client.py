@@ -50,8 +50,15 @@ class OpenAICompatClient:
         self._max_retries = max_retries
         self._retry_base_delay = retry_base_delay
 
-    async def stream(self, payload: dict[str, Any]) -> AsyncIterator[dict[str, Any]]:
+    async def stream(
+        self, payload: dict[str, Any], stats: dict[str, Any] | None = None
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Yield raw chunks. `stats`, when given, is filled in place with
+        `retries`: how many attempts failed before this one (observability
+        for the provider layer; a stream is per request, so no shared state)."""
         for attempt in range(self._max_retries + 1):
+            if stats is not None:
+                stats["retries"] = attempt
             delivered = False
             try:
                 async with self._client.stream(
