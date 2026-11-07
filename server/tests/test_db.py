@@ -67,6 +67,10 @@ def test_migrations_run_to_head(tmp_path):
         "unanswered_questions",
         "contact_messages",
     } <= tables
+    columns = {column["name"] for column in inspect(engine).get_columns("turn_log")}
+    assert {"visitor_message", "answer", "citations", "tool_calls", "retrieved_chunks",
+            "prompt_version", "kb_version", "locale", "embed"} <= columns
+    assert "status" in {c["name"] for c in inspect(engine).get_columns("unanswered_questions")}
     engine.dispose()
 
 

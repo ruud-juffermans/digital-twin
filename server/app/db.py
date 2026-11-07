@@ -13,6 +13,7 @@ called at startup so a deploy is always at head.
 
 import logging
 import time
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -103,6 +104,26 @@ class TurnLogRow(Base):
     latency_ms: Mapped[int] = mapped_column(Integer, default=0)
     tools_used: Mapped[list[str]] = mapped_column(JSONVariant, default=list)
     guard_flags: Mapped[list[str]] = mapped_column(JSONVariant, default=list)
+    # Prompt logging (migration 0008). The text columns are nulled by the
+    # retention job after TEXT_RETENTION_DAYS; the numbers above stay.
+    visitor_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    answer: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # [{"title": str}] — the knowledge documents the answer cited.
+    citations: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONVariant, nullable=True)
+    # [{"name", "input", "result_chars"}] — every tool call of the turn.
+    tool_calls: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONVariant, nullable=True)
+    # [{"document", "heading", "score"}] — what search_knowledge returned.
+    retrieved_chunks: Mapped[list[dict[str, Any]] | None] = mapped_column(
+        JSONVariant, nullable=True
+    )
+    # Short hashes of the system prompt and the knowledge base that produced
+    # the answer, so a prompt change is visible as a step in the stats.
+    prompt_version: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    kb_version: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # Where the question came from: the visitor's locale and whether the chat
+    # ran embedded (widget on the portfolio) or standalone.
+    locale: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    embed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
 
 class BudgetLedgerRow(Base):
@@ -189,6 +210,9 @@ class UnansweredQuestionRow(Base):
     question: Mapped[str] = mapped_column(Text)
     answer: Mapped[str] = mapped_column(Text)
     reason: Mapped[str] = mapped_column(String(10))  # "guard" | "model"
+    # Triage: "open" until Ruud marks it "handled" (added the fact to the
+    # knowledge base, or decided it is fine to refuse).
+    status: Mapped[str] = mapped_column(String(10), default="open", server_default="open")
 
 
 class ContactMessageRow(Base):
@@ -292,10 +316,23 @@ class TurnRecorder:
     chat stream, so every error is logged and swallowed.
     """
 
-    def __init__(self, sessions: async_sessionmaker, provider: str, model: str) -> None:
+    def __init__(
+        self,
+        sessions: async_sessionmaker,
+        provider: str,
+        model: str,
+        *,
+        prompt_version: str | None = None,
+        kb_version: str | None = None,
+        store_text: bool = True,
+    ) -> None:
         self._sessions = sessions
         self._provider = provider
         self._model = model
+        self._prompt_version = prompt_version
+        self._kb_version = kb_version
+        # TEXT_RETENTION_DAYS=0: never store question/answer text at all.
+        self._store_text = store_text
 
     async def record(
         self,
@@ -307,9 +344,23 @@ class TurnRecorder:
         guard_flags: list[str],
         visitor_message: str,
         answer: str = "",
+        citations: list[str] | None = None,
+        tool_calls: list[dict[str, Any]] | None = None,
+        retrieved_chunks: list[dict[str, Any]] | None = None,
+        locale: str | None = None,
+        embed: bool | None = None,
     ) -> None:
         meta = meta or {}
         cost = float(meta.get("costUsd") or 0.0)
+        text_columns: dict[str, Any] = {}
+        if self._store_text:
+            text_columns = {
+                "visitor_message": visitor_message,
+                "answer": answer,
+                "citations": [{"title": title} for title in citations or []],
+                "tool_calls": tool_calls or [],
+                "retrieved_chunks": retrieved_chunks or [],
+            }
         try:
             async with self._sessions() as session:
                 session.add(
@@ -325,6 +376,11 @@ class TurnRecorder:
                         latency_ms=int(meta.get("latencyMs") or 0),
                         tools_used=tools_used,
                         guard_flags=guard_flags,
+                        prompt_version=self._prompt_version,
+                        kb_version=self._kb_version,
+                        locale=locale,
+                        embed=embed,
+                        **text_columns,
                     )
                 )
                 if guard_flags:
@@ -374,6 +430,37 @@ class TurnRecorder:
                     .where(BudgetLedgerRow.day == day)
                     .values(spent_usd=BudgetLedgerRow.spent_usd + cost)
                 )
+
+
+async def purge_expired_text(sessions: async_sessionmaker, retention_days: int) -> int:
+    """Null the free-text columns of turns and feedback older than the
+    retention window (PRD: visitor text is kept TEXT_RETENTION_DAYS, numeric
+    telemetry forever). Returns the number of turn rows cleared."""
+    cutoff = datetime.now(UTC) - timedelta(days=max(retention_days, 0))
+    async with sessions() as session:
+        turns = await session.execute(
+            update(TurnLogRow)
+            .where(TurnLogRow.created_at < cutoff, TurnLogRow.visitor_message.is_not(None))
+            .values(
+                visitor_message=None,
+                answer=None,
+                citations=None,
+                tool_calls=None,
+                retrieved_chunks=None,
+            )
+        )
+        await session.execute(
+            update(FeedbackRow)
+            .where(
+                FeedbackRow.created_at < cutoff,
+                (FeedbackRow.question.is_not(None))
+                | (FeedbackRow.answer.is_not(None))
+                | (FeedbackRow.comment.is_not(None)),
+            )
+            .values(question=None, answer=None, comment=None)
+        )
+        await session.commit()
+    return turns.rowcount or 0
 
 
 async def load_today_spent(sessions: async_sessionmaker) -> float:

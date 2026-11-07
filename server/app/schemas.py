@@ -13,6 +13,11 @@ class ChatRequest(BaseModel):
     # Stable conversation id for LangGraph checkpointing; the server generates
     # one per request when absent (no cross-turn state in that case).
     thread_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,64}$")
+    # Where the question came from, for the admin stats only: the browser's
+    # locale and whether the chat runs embedded on the portfolio (widget).
+    locale: str | None = Field(default=None, max_length=16)
+    embed: bool | None = None
+
     @field_validator("messages")
     @classmethod
     def last_turn_is_user(cls, messages: list[ChatTurn]) -> list[ChatTurn]:

@@ -5,6 +5,7 @@ Pick a provider with LLM_PROVIDER in .env — gemini (default), openai,
 deepseek, or kimi. All speak the same chat-completions protocol.
 """
 
+import hashlib
 import json
 import time
 from collections.abc import AsyncIterator
@@ -48,6 +49,20 @@ website, answering visitors' questions about Ruud and his work.
   draft_contact_message whenever a visitor asks you to pass a message on to
   Ruud or leaves contact details for him.
 - Be concise and friendly."""
+
+
+def prompt_version() -> str:
+    """Short hash of the system prompt: the admin stats group turns by it so
+    a prompt edit shows up as a new version."""
+    return hashlib.sha256(SYSTEM_PROMPT.encode()).hexdigest()[:8]
+
+
+def knowledge_version(docs: list[KnowledgeDoc]) -> str:
+    """Short hash of the whole knowledge base (titles + text, in load order)."""
+    digest = hashlib.sha256()
+    for doc in docs:
+        digest.update(f"{doc.slug}\n{doc.title}\n{doc.text}\n".encode())
+    return digest.hexdigest()[:8]
 
 
 def _cached_tokens(usage: dict[str, Any]) -> int:

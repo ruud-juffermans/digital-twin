@@ -62,7 +62,13 @@ export async function* streamChat(
   const response = await fetch("/api/chat", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ messages, thread_id: threadId }),
+    body: JSON.stringify({
+      messages,
+      thread_id: threadId,
+      // Admin stats only: where the question came from.
+      locale: navigator.language?.slice(0, 16) || null,
+      embed: new URLSearchParams(window.location.search).has("embed"),
+    }),
     signal,
   });
   if (!response.ok || !response.body) throw new ChatHttpError(response.status);
