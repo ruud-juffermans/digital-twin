@@ -249,7 +249,9 @@ def test_performance_stats_and_turn_trace(sessions, admin_token):
     assert (window["turns"], window["answered"], window["model_calls"]) == (1, 1, 2)
     assert window["model_calls_per_turn"] == 2.0
     assert window["ttft_p50_ms"] is not None
-    assert window["latency_p50_ms"] == turn.latency_ms
+    # Zero-latency turns are excluded from the percentile; a fake model can
+    # answer within the same millisecond on a fast runner.
+    assert window["latency_p50_ms"] == (turn.latency_ms or None)
     assert window["error_rate"] == 0.0 and window["truncation_rate"] == 0.0
     assert window["retries"] == 0
     assert window["lengths"]["answer_p50"] == len("Available now.")
