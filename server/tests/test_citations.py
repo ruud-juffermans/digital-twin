@@ -2,9 +2,9 @@ import asyncio
 from typing import Any
 
 from app.config import Settings
+from app.gateway.client import OpenAICompatClient
 from app.knowledge import KnowledgeDoc
-from app.llm import OpenAICompatProvider
-from app.openai_client import OpenAICompatClient
+from app.pipeline.provider import grounded_provider
 from tests.conftest import fake_transport
 
 DOCS = [
@@ -23,7 +23,7 @@ def split_stream(parts: list[str]) -> list[dict[str, Any]]:
 
 
 def collect_events(parts: list[str]) -> list[dict[str, Any]]:
-    provider = OpenAICompatProvider(
+    provider = grounded_provider(
         Settings(llm_provider="gemini", gemini_api_key="k"), DOCS,
         client=OpenAICompatClient(
             api_key="k", base_url="https://example.test/v1",

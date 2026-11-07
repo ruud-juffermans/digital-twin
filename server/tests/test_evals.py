@@ -4,9 +4,9 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 from app.agent.graph import build_agent
 from app.config import Settings
+from app.gateway.client import OpenAICompatClient
 from app.knowledge import load_knowledge
-from app.llm import OpenAICompatProvider
-from app.openai_client import OpenAICompatClient
+from app.pipeline.provider import grounded_provider
 from evals.run import FlakyTransport, eval_tool_selection, load_dataset, run_case
 from evals.scoring import looks_like_refusal, score_completion, score_tool_selection
 from tests.conftest import fake_llm, fake_transport, text_stream, tool_call_stream
@@ -60,9 +60,7 @@ def test_datasets_are_well_formed():
 def eval_agent(llm):
     """A real graph over the real knowledge base, backed by a fixture transport."""
     docs = load_knowledge(Settings().knowledge_dir)
-    provider = OpenAICompatProvider(
-        Settings(llm_provider="gemini", gemini_api_key="k"), docs, client=llm
-    )
+    provider = grounded_provider(Settings(llm_provider="gemini", gemini_api_key="k"), docs, llm)
 
     async def _run(fn):
         agent = build_agent(lambda: provider, docs, checkpointer=InMemorySaver())

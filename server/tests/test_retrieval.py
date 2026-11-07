@@ -15,9 +15,9 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.agent.graph import build_agent
 from app.agent.tools import build_tools
 from app.config import Settings
-from app.embeddings import EMBED_BATCH_SIZE, OpenAICompatEmbeddings
+from app.gateway.embeddings import EMBED_BATCH_SIZE, OpenAICompatEmbeddings
 from app.knowledge import KnowledgeDoc
-from app.llm import OpenAICompatProvider
+from app.pipeline.provider import grounded_provider
 from app.retrieval import split_into_chunks, sync_knowledge_chunks
 from app.storage.models import Base, KnowledgeChunkRow
 from tests.conftest import fake_llm, text_stream, tool_call_stream
@@ -184,9 +184,7 @@ def test_graph_executes_async_search_tool():
         tool_call_stream("search_knowledge", {"query": "contact email"}),
         text_stream("His email is on the contact page."),
     ])
-    provider = OpenAICompatProvider(
-        Settings(llm_provider="gemini", gemini_api_key="k"), [DOC], client=llm
-    )
+    provider = grounded_provider(Settings(llm_provider="gemini", gemini_api_key="k"), [DOC], llm)
     retriever = FakeRetriever(results=[SNIPPET])
     agent = build_agent(
         lambda: provider, [DOC], checkpointer=InMemorySaver(), retriever=retriever

@@ -3,8 +3,8 @@ import json
 from fastapi.testclient import TestClient
 
 from app.agent.tools import AVAILABILITY
+from app.gateway.client import OpenAICompatClient
 from app.main import create_app
-from app.openai_client import OpenAICompatClient
 from tests.conftest import (
     fake_llm,
     fake_transport,

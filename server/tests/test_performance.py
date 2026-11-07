@@ -13,11 +13,12 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.chat import classify_error, turn_error_type
 from app.config import get_settings
+from app.gateway.chat_model import OpenAICompatProvider
+from app.gateway.client import OpenAICompatClient, OpenAICompatError
 from app.knowledge import KnowledgeDoc
-from app.llm import OpenAICompatProvider
 from app.main import create_app
 from app.observability.telemetry import TurnRecorder
-from app.openai_client import OpenAICompatClient, OpenAICompatError
+from app.pipeline.provider import grounded_provider
 from app.storage.engine import run_migrations
 from app.storage.models import Base, ModelCallRow, TurnLogRow
 from tests.conftest import fake_llm, parse_events, sse_bytes, text_stream, tool_call_stream
@@ -51,7 +52,7 @@ def provider_with(transport: httpx.AsyncBaseTransport) -> OpenAICompatProvider:
         api_key="k", base_url="https://example.test/v1", transport=transport,
         max_retries=2, retry_base_delay=0,
     )
-    return OpenAICompatProvider(get_settings(), DOCS, client=client)
+    return grounded_provider(get_settings(), DOCS, client=client)
 
 
 def stream_meta(provider: OpenAICompatProvider) -> dict:

@@ -10,8 +10,8 @@ the next sync instead of serving mixed vector spaces.
 
 import httpx
 
-from .config import Settings
-from .llm import PROVIDERS
+from ..config import Settings
+from .providers import PROVIDERS
 
 EMBED_BATCH_SIZE = 64
 TIMEOUT_S = 30.0

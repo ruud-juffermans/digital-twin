@@ -5,7 +5,7 @@ from typing import Any
 import httpx
 import pytest
 
-from app.openai_client import OpenAICompatClient, OpenAICompatError
+from app.gateway.client import OpenAICompatClient, OpenAICompatError
 from tests.conftest import fake_transport, sse_bytes, text_stream
 
 

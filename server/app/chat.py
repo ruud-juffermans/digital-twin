@@ -11,8 +11,8 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from .agent.graph import TOOL_ERROR_FAILED, TOOL_ERROR_TIMEOUT
 from .config import get_settings
+from .gateway.client import OpenAICompatError
 from .observability.feedback import record_feedback
-from .openai_client import OpenAICompatError
 from .rate_limit import limiter
 from .schemas import ChatRequest, FeedbackRequest
 

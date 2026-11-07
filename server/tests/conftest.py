@@ -5,7 +5,7 @@ from typing import Any
 import httpx
 import pytest
 
-from app.openai_client import OpenAICompatClient
+from app.gateway.client import OpenAICompatClient
 from app.rate_limit import limiter
 
 

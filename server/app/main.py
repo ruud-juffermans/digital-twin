@@ -19,12 +19,13 @@ from .agent.budget import BudgetTracker
 from .agent.graph import build_agent
 from .chat import router as chat_router
 from .config import Settings, get_settings
-from .embeddings import create_embedder
+from .gateway.balances import ProviderBalances
+from .gateway.embeddings import create_embedder
 from .knowledge import load_knowledge
-from .llm import OpenAICompatProvider, knowledge_version, prompt_version
+from .llm import knowledge_version, prompt_version
 from .observability.retention import retention_loop
 from .observability.telemetry import TurnRecorder, load_today_spent
-from .providers import ProviderBalances
+from .pipeline.provider import grounded_provider
 from .providers import router as providers_router
 from .rate_limit import limiter
 from .retrieval import SemanticRetriever, sync_knowledge_chunks
@@ -51,7 +52,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     app.state.knowledge = load_knowledge(settings.knowledge_dir)
     logger.info("Loaded %d knowledge documents", len(app.state.knowledge))
-    app.state.llm = OpenAICompatProvider(settings, app.state.knowledge)
+    app.state.llm = grounded_provider(settings, app.state.knowledge)
     app.state.budget = BudgetTracker(settings.daily_budget_usd)
     app.state.provider_balances = ProviderBalances()
     engine = None

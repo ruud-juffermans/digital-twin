@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
+from app.gateway.client import OpenAICompatClient
 from app.main import create_app
-from app.openai_client import OpenAICompatClient
 from tests.conftest import fake_transport, text_stream
 
 
