@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, inspect, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.chat import classify_error, turn_error_type
+from app.api.chat import classify_error, turn_error_type
 from app.config import get_settings
 from app.context.knowledge import KnowledgeDoc
 from app.gateway.chat_model import OpenAICompatProvider

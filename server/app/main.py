@@ -14,9 +14,12 @@ from slowapi.errors import RateLimitExceeded
 
 from .actions.approval import InMemoryApprovalStore, PostgresApprovalStore
 from .actions.budget import BudgetTracker
-from .admin import router as admin_router
-from .admin_read import router as admin_read_router
-from .chat import router as chat_router
+from .api.admin import router as admin_router
+from .api.admin_read import router as admin_read_router
+from .api.chat import router as chat_router
+from .api.providers import router as providers_router
+from .api.rate_limit import limiter
+from .api.security import install_security
 from .config import Settings, get_settings
 from .context.knowledge import load_knowledge
 from .context.prompt import knowledge_version, prompt_version
@@ -27,9 +30,6 @@ from .observability.retention import retention_loop
 from .observability.telemetry import TurnRecorder, load_today_spent
 from .pipeline.graph import build_agent
 from .pipeline.provider import grounded_provider
-from .providers import router as providers_router
-from .rate_limit import limiter
-from .security import install_security
 from .storage.engine import create_engine_and_sessions, run_migrations
 
 logging.basicConfig(level=logging.INFO)

@@ -1,7 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app.chat import APPROVAL_NOTICE
+from app.api.chat import APPROVAL_NOTICE
 from app.config import get_settings
 from app.main import create_app
 from tests.conftest import fake_llm, parse_events, text_stream, tool_call_stream

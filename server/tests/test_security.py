@@ -1,8 +1,8 @@
 from fastapi.testclient import TestClient
 
+from app.api.security import MAX_BODY_BYTES
 from app.config import get_settings
 from app.main import create_app
-from app.security import MAX_BODY_BYTES
 
 
 def test_security_headers_on_every_response():
