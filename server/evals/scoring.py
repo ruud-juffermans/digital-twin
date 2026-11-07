@@ -7,7 +7,7 @@ from typing import Any
 
 # The refusal heuristic is shared with the agent's own groundedness check so
 # evals and runtime agree on what counts as an honest decline.
-from app.agent.guards import looks_like_refusal
+from app.guardrails.output import looks_like_refusal
 
 __all__ = ["looks_like_refusal", "score_completion", "score_tool_selection"]
 

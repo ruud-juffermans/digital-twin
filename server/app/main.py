@@ -2,7 +2,6 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -13,48 +12,28 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from slowapi.errors import RateLimitExceeded
 
-from .admin import router as admin_router
-from .admin_read import router as admin_read_router
-from .agent.budget import BudgetTracker
-from .agent.graph import build_agent
-from .chat import router as chat_router
+from .actions.approval import InMemoryApprovalStore, PostgresApprovalStore
+from .actions.budget import BudgetTracker
+from .api.admin import router as admin_router
+from .api.admin_read import router as admin_read_router
+from .api.chat import router as chat_router
+from .api.providers import router as providers_router
+from .api.rate_limit import limiter
+from .api.security import install_security
 from .config import Settings, get_settings
-from .db import (
-    InMemoryApprovalStore,
-    PostgresApprovalStore,
-    TurnRecorder,
-    create_engine_and_sessions,
-    load_today_spent,
-    purge_expired_text,
-    run_migrations,
-)
-from .embeddings import create_embedder
-from .knowledge import load_knowledge
-from .llm import OpenAICompatProvider, knowledge_version, prompt_version
-from .providers import ProviderBalances
-from .providers import router as providers_router
-from .rate_limit import limiter
-from .retrieval import SemanticRetriever, sync_knowledge_chunks
-from .security import install_security
+from .context.knowledge import load_knowledge
+from .context.prompt import knowledge_version, prompt_version
+from .context.retrieval import SemanticRetriever, sync_knowledge_chunks
+from .gateway.balances import ProviderBalances
+from .gateway.embeddings import create_embedder
+from .observability.retention import retention_loop
+from .observability.telemetry import TurnRecorder, load_today_spent
+from .pipeline.graph import build_agent
+from .pipeline.provider import grounded_provider
+from .storage.engine import create_engine_and_sessions, run_migrations
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-RETENTION_INTERVAL_S = 24 * 60 * 60
-
-
-async def _retention_loop(sessions: Any, retention_days: int) -> None:
-    """Clear expired visitor text once at startup, then daily."""
-    while True:
-        try:
-            cleared = await purge_expired_text(sessions, retention_days)
-            if cleared:
-                logger.info("Retention: cleared text on %d turn(s) older than %d days",
-                            cleared, retention_days)
-        except Exception:
-            logger.exception("Retention job failed")
-        await asyncio.sleep(RETENTION_INTERVAL_S)
-
 
 @asynccontextmanager
 async def _checkpointer(settings: Settings) -> AsyncIterator[BaseCheckpointSaver]:
@@ -73,7 +52,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     app.state.knowledge = load_knowledge(settings.knowledge_dir)
     logger.info("Loaded %d knowledge documents", len(app.state.knowledge))
-    app.state.llm = OpenAICompatProvider(settings, app.state.knowledge)
+    app.state.llm = grounded_provider(settings, app.state.knowledge)
     app.state.budget = BudgetTracker(settings.daily_budget_usd)
     app.state.provider_balances = ProviderBalances()
     engine = None
@@ -95,7 +74,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             store_text=settings.text_retention_days > 0,
         )
         retention_task = asyncio.create_task(
-            _retention_loop(app.state.sessions, settings.text_retention_days)
+            retention_loop(app.state.sessions, settings.text_retention_days)
         )
         # The cap survives restarts: seed today's spend from the ledger.
         app.state.budget.restore(await load_today_spent(app.state.sessions))
