@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     deepseek_api_key: str = ""
     moonshot_api_key: str = ""
+    # Second provider to answer with when the active one fails before any
+    # text has streamed (transport error, timeout, 429/5xx after retries).
+    # Empty disables the fallback; it needs its own API key configured.
+    fallback_provider: Literal["", "gemini", "openai", "deepseek", "kimi"] = ""
     max_output_tokens: int = 4096
     knowledge_dir: Path = Path(__file__).resolve().parent.parent / "knowledge"
     # Built client assets; when the directory exists the server serves them at /

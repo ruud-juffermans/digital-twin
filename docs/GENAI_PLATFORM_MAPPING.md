@@ -49,7 +49,7 @@ repo root. `server/app/` is laid out one folder per component of the post
 | Router: next-action predictor | The generation model itself decides which tool to call | `server/app/pipeline/nodes/generate.py` | Done (model-native) |
 | Gateway: unified layer over many models | One raw Chat Completions client; Gemini, OpenAI, DeepSeek, Kimi via a provider table and `LLM_PROVIDER` | `server/app/gateway/providers.py`, `server/app/gateway/client.py` | Done |
 | Gateway: access control and cost management | API keys never leave the server; per-IP rate limit; fail-closed daily budget | `server/app/api/rate_limit.py`, `server/app/actions/budget.py` | Done |
-| Gateway: fallback policy to another model | None; after retries the error propagates | `server/app/gateway/client.py` (lands in `gateway/fallback.py`) | Gap |
+| Gateway: fallback policy to another model | `FALLBACK_PROVIDER` answers when the active provider fails before any text streamed; the turn is billed to the provider that answered | `server/app/gateway/fallback.py`, `server/app/pipeline/provider.py` | Done (opt-in) |
 | Cache: prompt cache | Stable system prompt + documents form the cached prefix; provider cache hits surfaced as `cachedTokens` | `server/app/gateway/chat_model.py` (`_cached_tokens`) | Done (provider-side) |
 | Cache: exact cache | Embeddings are content-hashed and only re-computed when text changes | `server/app/context/retrieval.py` (`sync_knowledge_chunks`) | Done for embeddings only |
 | Cache: semantic cache | None | | Deliberately skipped (post calls its value "dubious") |
@@ -251,11 +251,15 @@ management, fallback policies, logging.
   restarts.
 - **Logging and analytics:** the `meta` event and `turn_log` row carry
   model, tokens, cached tokens, cost and latency.
-- **Fallback policy: missing.** When retries are exhausted the request
-  fails; it does not fall over to a second provider. The post calls API
-  failures "unfortunately common", and this project already has four
-  interchangeable providers configured, so a secondary provider on 5xx/429
-  would be a small change with a real reliability gain.
+- **Fallback policy.** `FallbackChatModel` wraps two chat models. When the
+  primary fails before delivering a single event (transport error, timeout,
+  or an error status once the client's retries are exhausted) the secondary
+  answers the same turn; once text has streamed the error propagates, since
+  a switch would duplicate it. The meta event names the provider that
+  answered and the one that failed, and `turn_log.provider` follows it so
+  spend lands on the right account. Opt-in via `FALLBACK_PROVIDER`; the post
+  calls API failures "unfortunately common", and the four interchangeable
+  providers made this a one-module change.
 
 **Router in the project.** There is no classifier model. Routing is
 deterministic Python in the graph:
@@ -415,10 +419,8 @@ to manage.
 
 ## 5. Gaps the post would ask about, in order of value
 
-1. **Provider fallback in the gateway.** Four compatible providers are
-   already configured; falling over to a second one on exhausted retries
-   is the post's most direct reliability recommendation and a small change:
-   a `server/app/gateway/fallback.py` wired into `gateway/chat_model.py`.
+1. **Provider fallback in the gateway.** Done: `server/app/gateway/fallback.py`,
+   opt-in via `FALLBACK_PROVIDER`.
 2. **Persist the trace and add first-token latency.** Done (migration
    `0009`): `turn_log.trace`, `turn_log.ttft_ms` and the `model_calls` table.
 3. **Length metrics.** Done (migration `0009`): `question_chars`,

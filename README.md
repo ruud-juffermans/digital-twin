@@ -20,4 +20,10 @@ The model backend is pluggable. Set `LLM_PROVIDER` in
 # .env
 LLM_PROVIDER=gemini                     # default: deepseek
 OLLAMA_MODEL=gemini-3.1-flash-lite      # local model to use
+FALLBACK_PROVIDER=deepseek              # optional: answers when the active one fails
 ```
+
+With `FALLBACK_PROVIDER` set (and its API key present), a turn that fails
+before any text has streamed (connection error, timeout, 429/5xx after
+retries) is answered by the fallback provider instead. The turn log bills it
+to the provider that answered.

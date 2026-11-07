@@ -237,3 +237,11 @@ def test_record_eval_run_writes_run_and_case_rows(sessions):
         (run_pk, "tool_selection", "availability-freelance", True),
         (run_pk, "tool_selection", "fact-skills", False),
     ]
+
+
+def test_recorder_bills_a_fallback_turn_to_the_provider_that_answered(sessions):
+    recorder = TurnRecorder(sessions, provider="gemini", model="m")
+    record(recorder, meta={**META, "provider": "deepseek", "fallbackFrom": "gemini"})
+    record(recorder, thread_id="t-2")  # no provider in meta: the configured one
+
+    assert [turn.provider for turn in rows(sessions, TurnLogRow)] == ["deepseek", "gemini"]

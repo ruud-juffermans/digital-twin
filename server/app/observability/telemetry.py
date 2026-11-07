@@ -89,7 +89,8 @@ class TurnRecorder:
             async with self._sessions() as session:
                 turn = TurnLogRow(
                     thread_id=thread_id,
-                    provider=self._provider,
+                    # A fallback turn is billed to the provider that answered.
+                    provider=str(meta.get("provider") or self._provider),
                     model=self._model,
                     outcome=outcome,
                     input_tokens=int(meta.get("inputTokens") or 0),

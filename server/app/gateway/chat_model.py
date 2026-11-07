@@ -49,12 +49,13 @@ class OpenAICompatProvider:
         system_prompt: str,
         titles: Sequence[str] = (),
         client: OpenAICompatClient | None = None,
+        provider: str | None = None,
     ):
-        spec = PROVIDERS[settings.llm_provider]
+        self._provider = provider or settings.llm_provider
+        spec = PROVIDERS[self._provider]
         self._model = getattr(settings, spec["model_field"])
-        self._provider = settings.llm_provider
         # OpenAI's current models reject max_tokens in favor of the newer name.
-        self._cap = ("max_completion_tokens" if settings.llm_provider == "openai"
+        self._cap = ("max_completion_tokens" if self._provider == "openai"
                      else "max_tokens")
         self._max_output_tokens = settings.max_output_tokens
         self._titles = list(titles)
@@ -63,6 +64,10 @@ class OpenAICompatProvider:
             api_key=getattr(settings, spec["key_field"]),
             base_url=spec["base_url"],
         )
+
+    @property
+    def provider(self) -> str:
+        return self._provider
 
     async def stream(
         self,
@@ -147,6 +152,7 @@ class OpenAICompatProvider:
         output_tokens = usage.get("completion_tokens") or 0
         yield {
             "type": "meta",
+            "provider": self._provider,
             "model": model,
             "latencyMs": round((time.monotonic() - started) * 1000),
             "ttftMs": first_token_ms,

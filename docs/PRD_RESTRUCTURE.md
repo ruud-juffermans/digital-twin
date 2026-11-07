@@ -239,7 +239,7 @@ these become small changes. Order follows `GENAI_PLATFORM_MAPPING.md` §5.
 
 | # | Gap | Lands in | Size after restructure |
 |---|---|---|---|
-| 1 | Provider fallback on exhausted retries | `gateway/fallback.py`, wired in `gateway/chat_model.py`; secondary provider from `config.py` | one module, one setting |
+| 1 | Provider fallback on exhausted retries | `gateway/fallback.py`, composed in `pipeline/provider.py`; `FALLBACK_PROVIDER` in `config.py` | done: one module, one setting (branch `feat/provider-fallback`) |
 | 2 | Persist per-node trace, record time-to-first-token | `observability/tracing.py` collects, `observability/telemetry.py` writes, `storage/models.py` + migration `0009` adds columns | two modules, one migration |
 | 3 | Query, prompt and answer length metrics | `pipeline/nodes/verify.py` computes, `observability/telemetry.py` records | two edits |
 | 4 | Hybrid retrieval (term + vector) before the posts corpus arrives | `context/retrieval.py` only; the tool already receives a callable | one module |
