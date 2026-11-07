@@ -13,9 +13,9 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from slowapi.errors import RateLimitExceeded
 
 from .actions.approval import InMemoryApprovalStore, PostgresApprovalStore
+from .actions.budget import BudgetTracker
 from .admin import router as admin_router
 from .admin_read import router as admin_read_router
-from .agent.budget import BudgetTracker
 from .agent.graph import build_agent
 from .chat import router as chat_router
 from .config import Settings, get_settings

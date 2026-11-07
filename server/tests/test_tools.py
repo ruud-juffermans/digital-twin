@@ -1,5 +1,7 @@
-from app.agent.tools import build_tools, tool_definitions
+from app.actions.tools.base import tool_definitions
+from app.actions.tools.registry import build_tools
 from app.context.knowledge import KnowledgeDoc
+from app.context.retrieval import make_search
 
 
 def make_doc(title: str, text: str) -> KnowledgeDoc:
@@ -11,25 +13,25 @@ def test_search_knowledge_returns_matching_snippets():
         make_doc("CV", "# CV\n\nRuud works with Kafka in Amsterdam.\n\nUnrelated paragraph."),
         make_doc("About", "# About\n\nHe sails on the IJsselmeer."),
     ]
-    results = build_tools(docs)["search_knowledge"].run(query="kafka amsterdam")
+    results = build_tools(make_search(docs))["search_knowledge"].run(query="kafka amsterdam")
 
     assert results[0] == {"document": "CV", "snippet": "Ruud works with Kafka in Amsterdam."}
     assert all("Unrelated" not in r["snippet"] for r in results)
 
 
 def test_search_knowledge_returns_empty_for_no_match():
-    tools = build_tools([make_doc("CV", "Nothing relevant here.")])
+    tools = build_tools(make_search([make_doc("CV", "Nothing relevant here.")]))
     assert tools["search_knowledge"].run(query="quantum blockchain") == []
 
 
 def test_get_availability_returns_structured_data():
-    value = build_tools([])["get_availability"].run()
+    value = build_tools(make_search([]))["get_availability"].run()
     assert value["status"] == "open"
     assert value["available_from"] == "now"
 
 
 def test_definitions_are_narrow_and_strict():
-    definitions = tool_definitions(build_tools([]))
+    definitions = tool_definitions(build_tools(make_search([])))
 
     assert {d["function"]["name"] for d in definitions} == {
         "search_knowledge", "get_availability", "draft_contact_message",
@@ -42,5 +44,5 @@ def test_definitions_are_narrow_and_strict():
 
 
 def test_only_the_contact_draft_is_high_risk():
-    tools = build_tools([])
+    tools = build_tools(make_search([]))
     assert [name for name, tool in tools.items() if tool.high_risk] == ["draft_contact_message"]

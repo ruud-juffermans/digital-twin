@@ -2,7 +2,7 @@ import json
 
 from fastapi.testclient import TestClient
 
-from app.agent.tools import AVAILABILITY
+from app.actions.tools.get_availability import AVAILABILITY
 from app.gateway.client import OpenAICompatClient
 from app.main import create_app
 from tests.conftest import (

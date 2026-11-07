@@ -12,12 +12,12 @@ from langgraph.checkpoint.memory import InMemorySaver
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from app.actions.tools.registry import build_tools
 from app.agent.graph import build_agent
-from app.agent.tools import build_tools
 from app.config import Settings
 from app.context.chunking import split_into_chunks
 from app.context.knowledge import KnowledgeDoc
-from app.context.retrieval import sync_knowledge_chunks
+from app.context.retrieval import make_search, sync_knowledge_chunks
 from app.gateway.embeddings import EMBED_BATCH_SIZE, OpenAICompatEmbeddings
 from app.pipeline.provider import grounded_provider
 from app.storage.models import Base, KnowledgeChunkRow
@@ -159,7 +159,7 @@ SNIPPET = {"document": "About me", "heading": "Contact", "snippet": "Email: me@.
 
 def test_search_tool_uses_retriever_when_wired():
     retriever = FakeRetriever(results=[SNIPPET])
-    tool = build_tools([DOC], retriever)["search_knowledge"]
+    tool = build_tools(make_search([DOC], retriever))["search_knowledge"]
 
     assert asyncio.run(tool.run(query="contact email")) == [SNIPPET]
     assert retriever.queries == ["contact email"]
@@ -168,14 +168,14 @@ def test_search_tool_uses_retriever_when_wired():
 @pytest.mark.parametrize("retriever", [FakeRetriever(), FakeRetriever(error=True)])
 def test_search_tool_falls_back_to_term_overlap(retriever):
     # Empty results and a failing vector store both fall back to term overlap.
-    tool = build_tools([DOC], retriever)["search_knowledge"]
+    tool = build_tools(make_search([DOC], retriever))["search_knowledge"]
 
     results = asyncio.run(tool.run(query="independent consultant Amsterdam"))
     assert results and "independent data & AI consultant" in results[0]["snippet"]
 
 
 def test_search_tool_without_retriever_stays_sync():
-    tool = build_tools([DOC])["search_knowledge"]
+    tool = build_tools(make_search([DOC]))["search_knowledge"]
     results = tool.run(query="independent consultant Amsterdam")
     assert results and results[0]["document"] == "About me"
 

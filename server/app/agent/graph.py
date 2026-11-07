@@ -29,13 +29,15 @@ from langgraph.config import get_stream_writer
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
+from ..actions.budget import BudgetTracker
+from ..actions.tools.base import tool_definitions
+from ..actions.tools.registry import build_tools
 from ..context.knowledge import KnowledgeDoc
+from ..context.retrieval import make_search
 from ..guardrails.input import screen_input
 from ..guardrails.output import looks_like_refusal, uncited_answer, valid_citation
 from ..guardrails.policies import BUDGET_REFUSAL
-from .budget import BudgetTracker
 from .state import AgentState
-from .tools import build_tools, tool_definitions
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +122,7 @@ def build_agent(
     `retriever` upgrades search_knowledge to semantic search when present.
     """
     known_titles = {doc.title for doc in docs}
-    tools_by_name = build_tools(docs, retriever)
+    tools_by_name = build_tools(make_search(docs, retriever))
     tool_defs = tool_definitions(tools_by_name)
 
     async def guard_input(state: AgentState) -> AgentState:
