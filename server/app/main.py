@@ -110,7 +110,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             retriever=app.state.retriever,
         )
         logger.info(
-            "Server ready (checkpoints: %s, search: %s)",
+            "Server ready (model: %s, fallback: %s, checkpoints: %s, search: %s)",
+            settings.llm_provider,
+            getattr(getattr(app.state.llm, "secondary", None), "provider", None) or "none",
             "postgres" if settings.database_url else "in-memory",
             "semantic" if app.state.retriever is not None else "term-overlap",
         )
