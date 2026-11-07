@@ -5,8 +5,8 @@ from typing import Any
 import httpx
 import pytest
 
-from app.openai_client import OpenAICompatClient
-from app.rate_limit import limiter
+from app.api.rate_limit import limiter
+from app.gateway.client import OpenAICompatClient
 
 
 @pytest.fixture(autouse=True)

@@ -18,7 +18,9 @@ the standing rule that **evaluation is necessary at every step**.
 This document maps each of those ideas onto this repository: what is
 implemented, where it lives, where the project deliberately deviates, and
 what the post suggests we are still missing. File paths are relative to the
-repo root.
+repo root. `server/app/` is laid out one folder per component of the post
+(`context`, `guardrails`, `gateway`, `actions`, `pipeline`, `observability`,
+`storage`, plus `api` for transport); see `docs/PRD_RESTRUCTURE.md`.
 
 ---
 
@@ -26,39 +28,39 @@ repo root.
 
 | Post component | Project implementation | Where | Status |
 |---|---|---|---|
-| Simplest form: query → model API → response | Streaming `/api/chat` over SSE, one OpenAI-compatible call per model round | `server/app/chat.py`, `server/app/llm.py` | Done |
-| Context: inline documents | Four knowledge documents ride in the system prompt as titled markdown sections | `server/app/llm.py` (`knowledge_system_prompt`), `server/knowledge/*.py` | Done |
-| Context: term-based retrieval | Paragraph ranking by query/paragraph word overlap | `server/app/agent/tools.py` (`_search`) | Done (baseline + fallback) |
-| Context: embedding-based retrieval | Heading-scoped chunks embedded into pgvector, cosine search | `server/app/retrieval.py`, `server/app/embeddings.py`, migration `0005` | Done (opt-in via `EMBEDDING_PROVIDER`) |
-| Context: hybrid search / reranking | Not combined; vector search falls back to term overlap only when it fails or returns nothing | `server/app/agent/tools.py` (`_semantic_search`) | Gap (low priority at current corpus size) |
-| Context: RAG with tabular / structured data | `get_availability` returns a structured dict instead of prose | `server/app/agent/tools.py` (`AVAILABILITY`) | Done (minimal form) |
-| Context: agentic RAG (retrieval as a tool) | `search_knowledge` is a model-callable tool executed in a graph node | `server/app/agent/tools.py`, `server/app/agent/graph.py` | Done |
-| Context: query rewriting | None; the full history is sent each turn and the model writes the search query itself | `server/app/schemas.py` (`ChatRequest`) | Deliberately skipped |
-| Input guardrails: PII leakage to external API | Card/account-length digit runs are blocked before any API call | `server/app/agent/guards.py` (`SENSITIVE_NUMBER`) | Partial (block, no reversible masking) |
-| Input guardrails: jailbreak / injection | Phrase filter for injection markers, off-topic regex, system-prompt scope | `server/app/agent/guards.py` (`screen_input`) | Done (phrase-filter level) |
-| Input guardrails: human approval for risky actions | `interrupt()` pauses the graph; Ruud approves via admin endpoint | `server/app/agent/graph.py` (`request_approval`), `server/app/admin.py` | Done |
-| Output guardrails: hallucination | Unknown citations dropped; long uncited answers flagged | `server/app/agent/graph.py` (`generate`, `verify`) | Done (flag, not block) |
+| Simplest form: query → model API → response | Streaming `/api/chat` over SSE, one OpenAI-compatible call per model round | `server/app/api/chat.py`, `server/app/gateway/chat_model.py` | Done |
+| Context: inline documents | Four knowledge documents ride in the system prompt as titled markdown sections | `server/app/context/prompt.py` (`knowledge_system_prompt`), `server/knowledge/*.py` | Done |
+| Context: term-based retrieval | Paragraph ranking by query/paragraph word overlap | `server/app/context/retrieval.py` (`term_search`) | Done (baseline + fallback) |
+| Context: embedding-based retrieval | Heading-scoped chunks embedded into pgvector, cosine search | `server/app/context/retrieval.py`, `server/app/gateway/embeddings.py`, migration `0005` | Done (opt-in via `EMBEDDING_PROVIDER`) |
+| Context: hybrid search / reranking | Not combined; vector search falls back to term overlap only when it fails or returns nothing | `server/app/context/retrieval.py` (`make_search`) | Gap (low priority at current corpus size) |
+| Context: RAG with tabular / structured data | `get_availability` returns a structured dict instead of prose | `server/app/actions/tools/get_availability.py` | Done (minimal form) |
+| Context: agentic RAG (retrieval as a tool) | `search_knowledge` is a model-callable tool executed in a graph node | `server/app/actions/tools/search_knowledge.py`, `server/app/pipeline/nodes/execute_tools.py` | Done |
+| Context: query rewriting | None; the full history is sent each turn and the model writes the search query itself | `server/app/api/schemas.py` (`ChatRequest`) | Deliberately skipped |
+| Input guardrails: PII leakage to external API | Card/account-length digit runs are blocked before any API call | `server/app/guardrails/input.py` (`SENSITIVE_NUMBER`) | Partial (block, no reversible masking) |
+| Input guardrails: jailbreak / injection | Phrase filter for injection markers, off-topic regex, system-prompt scope | `server/app/guardrails/input.py` (`screen_input`) | Done (phrase-filter level) |
+| Input guardrails: human approval for risky actions | `interrupt()` pauses the graph; Ruud approves via admin endpoint | `server/app/pipeline/nodes/request_approval.py`, `server/app/api/admin.py` | Done |
+| Output guardrails: hallucination | Unknown citations dropped; long uncited answers flagged | `server/app/pipeline/nodes/generate.py`, `server/app/guardrails/output.py` | Done (flag, not block) |
 | Output guardrails: format / toxicity / AI judge | None | | Gap (free-text answers, low traffic) |
-| Failure management: retries | Exponential backoff on 408/409/429/5xx and transport errors, only before the first chunk is delivered | `server/app/openai_client.py` | Done |
-| Failure management: turn limit | `MAX_TOOL_ROUNDS = 3`, then `tool_choice="none"` forces a text answer | `server/app/agent/graph.py` | Done |
-| Failure management: human fallback | Approval queue plus "contact Ruud directly" in refusals | `server/app/chat.py` (`APPROVAL_NOTICE`), prompts | Done |
-| Router: intent classifier | None; routing is deterministic Python, not a model | `server/app/agent/graph.py` (`route_after_*`) | Deliberately skipped |
-| Router: out-of-scope detection | Stock refusal without an API call for clearly off-topic asks | `server/app/agent/guards.py` (`OFFTOPIC_PATTERNS`) | Done |
-| Router: next-action predictor | The generation model itself decides which tool to call | `server/app/agent/graph.py` (`generate`) | Done (model-native) |
-| Gateway: unified layer over many models | One raw Chat Completions client; Gemini, OpenAI, DeepSeek, Kimi via a provider table and `LLM_PROVIDER` | `server/app/llm.py` (`PROVIDERS`), `server/app/openai_client.py` | Done |
-| Gateway: access control and cost management | API keys never leave the server; per-IP rate limit; fail-closed daily budget | `server/app/rate_limit.py`, `server/app/agent/budget.py` | Done |
-| Gateway: fallback policy to another model | None; after retries the error propagates | `server/app/openai_client.py` | Gap |
-| Cache: prompt cache | Stable system prompt + documents form the cached prefix; provider cache hits surfaced as `cachedTokens` | `server/app/llm.py` (`_cached_tokens`) | Done (provider-side) |
-| Cache: exact cache | Embeddings are content-hashed and only re-computed when text changes | `server/app/retrieval.py` (`sync_knowledge_chunks`) | Done for embeddings only |
+| Failure management: retries | Exponential backoff on 408/409/429/5xx and transport errors, only before the first chunk is delivered | `server/app/gateway/client.py` | Done |
+| Failure management: turn limit | `MAX_TOOL_ROUNDS = 3`, then `tool_choice="none"` forces a text answer | `server/app/pipeline/nodes/generate.py` | Done |
+| Failure management: human fallback | Approval queue plus "contact Ruud directly" in refusals | `server/app/api/chat.py` (`APPROVAL_NOTICE`), prompts | Done |
+| Router: intent classifier | None; routing is deterministic Python, not a model | `server/app/pipeline/graph.py` (`route_after_*`) | Deliberately skipped |
+| Router: out-of-scope detection | Stock refusal without an API call for clearly off-topic asks | `server/app/guardrails/input.py` (`OFFTOPIC_PATTERNS`) | Done |
+| Router: next-action predictor | The generation model itself decides which tool to call | `server/app/pipeline/nodes/generate.py` | Done (model-native) |
+| Gateway: unified layer over many models | One raw Chat Completions client; Gemini, OpenAI, DeepSeek, Kimi via a provider table and `LLM_PROVIDER` | `server/app/gateway/providers.py`, `server/app/gateway/client.py` | Done |
+| Gateway: access control and cost management | API keys never leave the server; per-IP rate limit; fail-closed daily budget | `server/app/api/rate_limit.py`, `server/app/actions/budget.py` | Done |
+| Gateway: fallback policy to another model | None; after retries the error propagates | `server/app/gateway/client.py` (lands in `gateway/fallback.py`) | Gap |
+| Cache: prompt cache | Stable system prompt + documents form the cached prefix; provider cache hits surfaced as `cachedTokens` | `server/app/gateway/chat_model.py` (`_cached_tokens`) | Done (provider-side) |
+| Cache: exact cache | Embeddings are content-hashed and only re-computed when text changes | `server/app/context/retrieval.py` (`sync_knowledge_chunks`) | Done for embeddings only |
 | Cache: semantic cache | None | | Deliberately skipped (post calls its value "dubious") |
-| Complex logic: loops and branching | LangGraph state machine: guard → generate ⇄ tools → verify | `server/app/agent/graph.py` | Done |
-| Write actions | `draft_contact_message`, `high_risk=True`, never runs without approval, archived on approval | `server/app/agent/tools.py`, `server/app/admin.py`, `server/app/db.py` | Done (draft-only; nothing leaves the system) |
-| Observability: metrics | Per-turn `meta` event and `turn_log` row: tokens, cached tokens, cost, latency, tools, guard flags | `server/app/llm.py`, `server/app/db.py` (`TurnRecorder`) | Done |
-| Observability: logs | Python logging; guard incidents and unanswered questions persisted | `server/app/db.py` (`GuardIncidentRow`, `UnansweredQuestionRow`) | Partial (does not "log everything") |
-| Observability: traces | Per-node latency and guard flags streamed as a `trace` event | `server/app/agent/graph.py` (`_traced`, `verify`) | Partial (streamed, not persisted) |
+| Complex logic: loops and branching | LangGraph state machine: guard → generate ⇄ tools → verify | `server/app/pipeline/graph.py` | Done |
+| Write actions | `draft_contact_message`, `high_risk=True`, never runs without approval, archived on approval | `server/app/actions/tools/draft_contact_message.py`, `server/app/actions/approval.py`, `server/app/api/admin.py` | Done (draft-only; nothing leaves the system) |
+| Observability: metrics | Per-turn `meta` event and `turn_log` row: tokens, cached tokens, cost, latency, tools, guard flags | `server/app/gateway/chat_model.py`, `server/app/observability/telemetry.py` (`TurnRecorder`) | Done |
+| Observability: logs | Python logging; guard incidents and unanswered questions persisted | `server/app/storage/models.py` (`GuardIncidentRow`, `UnansweredQuestionRow`) | Partial (does not "log everything") |
+| Observability: traces | Per-node and per-tool spans streamed as a `trace` event and stored on `turn_log.trace`, with a `model_calls` row per model round | `server/app/observability/tracing.py`, `server/app/observability/telemetry.py` | Done |
 | Evaluation at every step | Tool-selection and task-completion datasets, thresholds, failure injection, eval history tables | `server/evals/`, migration `0004` | Done |
-| User feedback (post leaves this out) | 👍/👎 per answer with optional comment | `server/app/chat.py` (`/api/feedback`), `FeedbackRow` | Done |
-| Orchestration | LangGraph `StateGraph` with typed `AgentState` and a Postgres or in-memory checkpointer | `server/app/agent/graph.py`, `server/app/agent/state.py`, `server/app/main.py` | Done |
+| User feedback (post leaves this out) | 👍/👎 per answer with optional comment | `server/app/api/chat.py` (`/api/feedback`), `server/app/observability/feedback.py` | Done |
+| Orchestration | LangGraph `StateGraph` with typed `AgentState` and a Postgres or in-memory checkpointer | `server/app/pipeline/graph.py`, `server/app/pipeline/state.py`, `server/app/main.py` | Done |
 
 ---
 
@@ -104,12 +106,12 @@ queries.
   stable enough to be cached. The post's framing applies directly: context
   reduces reliance on the model's internal knowledge and keeps answers
   current without retraining.
-- **Term-based retrieval as the baseline.** `_search` in
-  `server/app/agent/tools.py` scores paragraphs by the number of query terms
+- **Term-based retrieval as the baseline.** `term_search` in
+  `server/app/context/retrieval.py` scores paragraphs by the number of query terms
   they contain. This is the post's "term-based retrieval works well out of the
   box" in its simplest form, and it is what runs when no database is
   configured.
-- **Embedding-based retrieval on top.** `server/app/retrieval.py` splits each
+- **Embedding-based retrieval on top.** `server/app/context/retrieval.py` splits each
   document into heading-scoped paragraph chunks, prefixes each with
   `title — heading` before embedding (so a paragraph keeps the context it
   loses when pulled out of its document), hashes the text, and stores vectors
@@ -156,7 +158,7 @@ guardrails are hard in streaming mode, and third-party APIs need the input
 side more than self-hosting does.
 
 **Input guards in the project.** All deterministic Python in
-`server/app/agent/guards.py`, run in the `guard_input` node before a single
+`server/app/guardrails/input.py`, run in the `guard_input` node before a single
 token is spent:
 
 - **Budget guard first.** When today's spend has reached `DAILY_BUDGET_USD`,
@@ -178,8 +180,8 @@ token is spent:
   script" style requests with a stock redirect and no API call. Subtler cases
   are left to the system prompt's "stay on topic" instruction.
 - **Transport-level guards.** Pydantic caps message count and lengths
-  (`server/app/schemas.py`), the security middleware refuses bodies over
-  256 KB with a 413 and sets a strict CSP (`server/app/security.py`), and
+  (`server/app/api/schemas.py`), the security middleware refuses bodies over
+  256 KB with a 413 and sets a strict CSP (`server/app/api/security.py`), and
   slowapi enforces 20 requests per 10 minutes per IP.
 
 **Output guards in the project.**
@@ -233,8 +235,8 @@ management, fallback policies, logging.
 
 - `OpenAICompatClient` is a raw Chat Completions client over httpx; Gemini,
   OpenAI, DeepSeek and Kimi all speak that protocol, so the `PROVIDERS` table
-  in `server/app/llm.py` plus `LLM_PROVIDER` is the whole switch. The same
-  pattern covers embeddings (`server/app/embeddings.py`), with
+  in `server/app/gateway/providers.py` plus `LLM_PROVIDER` is the whole switch. The same
+  pattern covers embeddings (`server/app/gateway/embeddings.py`), with
   `EMBEDDING_PROVIDER` independent of `LLM_PROVIDER` because DeepSeek and
   Kimi have no embeddings endpoint.
 - The post's "if a model API changes, only the gateway needs updating" shows
@@ -244,7 +246,7 @@ management, fallback policies, logging.
   credential exposed is the optional admin bearer token, and the admin
   endpoints are off entirely when it is unset.
 - **Cost management:** per-turn cost from flat rates in
-  `server/app/pricing.py` (deliberately over-counting cached tokens), a
+  `server/app/gateway/pricing.py` (deliberately over-counting cached tokens), a
   fail-closed daily budget, and a Postgres ledger that makes the cap survive
   restarts.
 - **Logging and analytics:** the `meta` event and `turn_log` row carry
@@ -342,23 +344,26 @@ path so you can pinpoint where it went wrong. Inspect production data daily.
   land in `guard_incidents` with the visitor's message; refusals and honest
   "not in my knowledge base" answers land in `unanswered_questions` tagged
   `guard` or `model`, which is the post's content-gap analysis in table form.
-- **Traces.** `_traced` wraps every node with a timer, and `verify` streams
-  the node list and guard flags to the client as a `trace` event. This is a
-  per-request execution path in the post's sense, without LangSmith.
+- **Traces.** `traced` wraps every node with a timer, `execute_tools` adds a
+  span per tool call, and `verify` streams the list with the guard flags as a
+  `trace` event. The same list is stored on `turn_log.trace`, with one
+  `model_calls` row per model round (tokens, cost, latency, time to first
+  token, finish reason, retries). This is a per-request execution path in
+  the post's sense, without LangSmith.
 - **Feedback.** `/api/feedback` stores 👍/👎 with the question, answer and an
   optional comment. The post explicitly leaves user feedback out of scope;
   the project has it.
-- **Where it falls short of "log everything".**
-  - The trace is streamed but not persisted; `turn_log` has total latency
-    and nothing per node.
-  - No time-to-first-token or tokens-per-second; only total latency.
-  - No query, context or response length metrics, which the post recommends
-    for spotting behaviour drift cheaply.
-  - Full prompts and answers are not logged, only the subset in
-    `unanswered_questions` and `feedback`. This is a privacy choice for a
-    public widget, but it means the "manually inspect production data daily"
-    loop has less to inspect.
-  - No dashboard; the tables exist, the views do not.
+- **Length metrics.** `turn_log` keeps question, context (tool results fed
+  back) and answer lengths after the text itself is purged, the post's
+  cheapest drift detector.
+- **Prompt logging with retention.** Visitor messages, answers, citations and
+  tool calls are stored on the turn for `TEXT_RETENTION_DAYS` (default 90),
+  then nulled by the retention job while the numbers stay. `0` never stores
+  text at all.
+- **Where it still falls short of "log everything".**
+  - No tokens-per-second; time to first token and total latency only.
+  - The admin read API serves the tables; a dashboard over it is a separate
+    client concern.
 
 ### AI pipeline orchestration
 
@@ -412,14 +417,12 @@ to manage.
 
 1. **Provider fallback in the gateway.** Four compatible providers are
    already configured; falling over to a second one on exhausted retries
-   is the post's most direct reliability recommendation and a small change
-   in `server/app/openai_client.py` / `server/app/llm.py`.
-2. **Persist the trace and add first-token latency.** Store the per-node
-   `trace` list on the `turn_log` row and record time-to-first-token in the
-   provider stream. Cheap, and it turns the streamed diagnostic into
-   history.
-3. **Length metrics.** Add query, prompt and answer lengths to `turn_log`.
-   The post singles these out as the cheapest drift detector.
+   is the post's most direct reliability recommendation and a small change:
+   a `server/app/gateway/fallback.py` wired into `gateway/chat_model.py`.
+2. **Persist the trace and add first-token latency.** Done (migration
+   `0009`): `turn_log.trace`, `turn_log.ttft_ms` and the `model_calls` table.
+3. **Length metrics.** Done (migration `0009`): `question_chars`,
+   `context_chars` and `answer_chars` on `turn_log`.
 4. **Hybrid retrieval before the posts corpus grows.** Combine term overlap
    (or Postgres full-text search) with vector search instead of using one as
    fallback for the other. Only worth it once Phase 11 adds posts.

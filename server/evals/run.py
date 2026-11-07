@@ -26,12 +26,14 @@ import httpx
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
-from app.agent.graph import build_agent
 from app.config import Settings, get_settings
-from app.db import create_engine_and_sessions, record_eval_run, run_migrations
-from app.knowledge import load_knowledge
-from app.llm import PROVIDERS, OpenAICompatProvider
-from app.openai_client import OpenAICompatClient
+from app.context.knowledge import load_knowledge
+from app.gateway.client import OpenAICompatClient
+from app.gateway.providers import PROVIDERS
+from app.observability.evals import record_eval_run
+from app.pipeline.graph import build_agent
+from app.pipeline.provider import grounded_provider
+from app.storage.engine import create_engine_and_sessions, run_migrations
 
 from .scoring import score_completion, score_tool_selection
 
@@ -186,7 +188,7 @@ async def main(argv: list[str] | None = None) -> int:
     settings = get_settings()
     docs = load_knowledge(settings.knowledge_dir)
     flaky = FlakyTransport() if args.failure_injection else None
-    provider = OpenAICompatProvider(settings, docs, client=make_client(settings, flaky))
+    provider = grounded_provider(settings, docs, client=make_client(settings, flaky))
     print(
         f"provider={settings.llm_provider} model={settings.active_model} "
         f"failure_injection={flaky is not None}\n"
